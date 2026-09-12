@@ -1,10 +1,11 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Check, ExternalLink, Star, ChevronLeft, ChevronRight, Utensils } from 'lucide-react';
 
-// Tipo de TypeScript para las comidas
 type Meal = {
   id: string;
   date: string;
@@ -59,7 +60,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-800 pb-20 max-w-md mx-auto relative font-sans">
-      {/* Header Aesthetic */}
       <header className="bg-gradient-to-r from-teal-500 to-emerald-500 text-white pt-10 pb-6 px-6 rounded-b-3xl shadow-md">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold tracking-tight">Dieta de Alba ✨</h1>
@@ -68,7 +68,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Selector de Fecha */}
         <div className="flex items-center justify-between bg-white/10 backdrop-blur-md rounded-2xl p-2 border border-white/20">
           <button onClick={() => changeDate(-1)} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
             <ChevronLeft size={20} />
@@ -82,7 +81,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Lista de Comidas */}
       <section className="px-5 mt-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-700">Plan del día</h2>
@@ -122,6 +120,12 @@ export default function Home() {
                   <h3 className={`font-medium text-slate-800 text-sm ${meal.is_completed ? 'line-through text-slate-400' : ''}`}>
                     {meal.title}
                   </h3>
+
+                  {meal.ingredients && (
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      {meal.ingredients}
+                    </p>
+                  )}
 
                   {meal.recipe_url && (
                     <div className="flex items-center gap-3 mt-2">
