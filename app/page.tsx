@@ -4,10 +4,24 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Check, ExternalLink, Star, ChevronLeft, ChevronRight, Utensils } from 'lucide-react';
 
+// Tipo de TypeScript para las comidas
+type Meal = {
+  id: string;
+  date: string;
+  meal_type: string;
+  title: string;
+  ingredients?: string;
+  recipe_url?: string;
+  rating?: number;
+  is_free_meal?: boolean;
+  free_meal_label?: string;
+  is_completed: boolean;
+};
+
 export default function Home() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [meals, setMeals] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [meals, setMeals] = useState<Meal[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     fetchMeals();
@@ -22,12 +36,12 @@ export default function Home() {
       .order('created_at', { ascending: true });
 
     if (!error) {
-      setMeals(data || []);
+      setMeals((data as Meal[]) || []);
     }
     setLoading(false);
   }
 
-  async function toggleComplete(mealId, currentStatus) {
+  async function toggleComplete(mealId: string, currentStatus: boolean) {
     const updatedStatus = !currentStatus;
     setMeals(meals.map(m => m.id === mealId ? { ...m, is_completed: updatedStatus } : m));
 
@@ -37,7 +51,7 @@ export default function Home() {
       .eq('id', mealId);
   }
 
-  const changeDate = (days) => {
+  const changeDate = (days: number) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + days);
     setSelectedDate(d.toISOString().split('T')[0]);
