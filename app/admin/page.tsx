@@ -72,24 +72,29 @@ function moveDate(value: string, days: number): string {
 export default function AdminPage() {
   const router = useRouter();
   const [nutritionist, setNutritionist] = useState<Profile | null>(null);
-  const [patients, setPatients] = useState<Profile[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [selectedDate, setSelectedDate] = useState(localDateString);
   const [drafts, setDrafts] = useState<MealDrafts>(emptyDrafts);
-  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     let active = true;
+    let sessionInitialized = false;
 
     async function checkAccess() {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       const session = sessionData.session;
 
       if (sessionError || !session) {
-        router.replace('/');
+        if (!active) return;
+        sessionInitialized = true;
+        setLoading(false);
+        router.push('/');
         return;
       }
 
@@ -99,28 +104,43 @@ export default function AdminPage() {
         .eq('id', session.user.id)
         .maybeSingle();
 
-      if (profileError || ownProfile?.role !== 'nutritionist') {
-        router.replace('/');
+      if (profileError) {
+        if (!active) return;
+        sessionInitialized = true;
+        setAccessError(`No se pudo verificar el perfil: ${profileError.message}`);
+        setLoading(false);
         return;
       }
 
-      const { data: patientData, error: patientsError } = await supabase
+      if (!ownProfile || ownProfile.role !== 'nutritionist') {
+        if (!active) return;
+        sessionInitialized = true;
+        setLoading(false);
+        router.push('/');
+        return;
+      }
+
+      const { data, error } = await supabase
         .from('profiles')
         .select('id, email, full_name, role')
-        .eq('role', 'patient')
         .order('full_name', { ascending: true });
 
       if (!active) return;
 
+      sessionInitialized = true;
       setNutritionist(ownProfile as Profile);
-      if (patientsError) {
+      if (error) {
         setMessage({ type: 'error', text: 'No se pudo cargar la lista de pacientes.' });
       } else {
-        const nextPatients = (patientData ?? []) as Profile[];
-        setPatients(nextPatients);
-        setSelectedPatientId(nextPatients[0]?.id ?? '');
+        const allProfiles = (data ?? []) as Profile[];
+        setProfiles(allProfiles);
+        setSelectedPatientId(
+          allProfiles.some((profile) => profile.id === ownProfile.id)
+            ? ownProfile.id
+            : (allProfiles[0]?.id ?? ''),
+        );
       }
-      setCheckingAccess(false);
+      setLoading(false);
     }
 
     void checkAccess();
@@ -128,7 +148,10 @@ export default function AdminPage() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace('/');
+      if (sessionInitialized && !session) {
+        setLoading(false);
+        router.push('/');
+      }
     });
 
     return () => {
@@ -188,7 +211,7 @@ export default function AdminPage() {
     return () => window.clearTimeout(timeout);
   }, [message]);
 
-  const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
+  const selectedPatient = profiles.find((profile) => profile.id === selectedPatientId);
 
   function updateDraft(mealType: MealType, field: 'title' | 'ingredients', value: string) {
     setDrafts((current) => ({
@@ -247,10 +270,27 @@ export default function AdminPage() {
     router.replace('/');
   }
 
-  if (checkingAccess) {
+  if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] text-sm text-slate-500">
-        Comprobando acceso…
+        <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 shadow-sm">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-rose-200 border-t-rose-500" />
+          Cargando panel de administración...
+        </div>
+      </main>
+    );
+  }
+
+  if (accessError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] p-6 text-slate-700">
+        <div className="w-full max-w-lg rounded-3xl border border-red-100 bg-white p-7 shadow-sm">
+          <h1 className="text-xl font-bold text-slate-800">No se pudo abrir el panel</h1>
+          <p className="mt-3 text-sm leading-6 text-red-600">{accessError}</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            Revisa que las políticas RLS permitan al usuario autenticado leer su propia fila de profiles.
+          </p>
+        </div>
       </main>
     );
   }
@@ -274,13 +314,13 @@ export default function AdminPage() {
               Pacientes
             </div>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-380px)]">
-              {patients.map((patient) => {
-                const selected = patient.id === selectedPatientId;
+              {profiles.map((profile) => {
+                const selected = profile.id === selectedPatientId;
                 return (
                   <button
-                    key={patient.id}
+                    key={profile.id}
                     type="button"
-                    onClick={() => setSelectedPatientId(patient.id)}
+                    onClick={() => setSelectedPatientId(profile.id)}
                     className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
                       selected
                         ? 'bg-slate-800 text-white shadow-sm'
@@ -288,16 +328,16 @@ export default function AdminPage() {
                     }`}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">{patient.full_name || 'Sin nombre'}</span>
+                      <span className="block truncate text-sm font-semibold">{profile.full_name || 'Sin nombre'}</span>
                       <span className={`block truncate text-xs ${selected ? 'text-slate-300' : 'text-slate-400'}`}>
-                        {patient.email}
+                        {profile.email}
                       </span>
                     </span>
                     <ChevronRight size={16} className="shrink-0" />
                   </button>
                 );
               })}
-              {patients.length === 0 && (
+              {profiles.length === 0 && (
                 <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">No hay pacientes disponibles.</p>
               )}
             </div>
