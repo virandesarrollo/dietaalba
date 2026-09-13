@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { 
   Check, 
@@ -162,6 +163,8 @@ const formatDateString = (d: Date) => {
 };
 
 export default function Home() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loadingSession, setLoadingSession] = useState<boolean>(true);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(formatDateString(new Date()));
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -198,18 +201,39 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchData(selectedDate);
-  }, [selectedDate]);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session) {
+      fetchData(selectedDate);
+    }
+  }, [selectedDate, session]);
 
   async function fetchData(dateToFetch?: string) {
     const targetDate = dateToFetch || selectedDate;
     setLoading(true);
+
+    if (!session?.user?.id) return;
 
     // 1. Cargar comidas de la fecha seleccionada
     const { data: mealsData, error: mealsError } = await supabase
       .from('daily_plan')
       .select('*')
       .eq('date', targetDate)
+      .eq('user_id', session.user.id)
       .order('created_at', { ascending: true });
 
     if (mealsError) {
@@ -234,6 +258,7 @@ export default function Home() {
     const { data: reviewsData } = await supabase
       .from('recipe_reviews')
       .select('*')
+      .eq('user_id', session.user.id)
       .order('updated_at', { ascending: false });
 
     if (reviewsData) {
@@ -391,6 +416,7 @@ export default function Home() {
       is_free_meal: true,
       free_meal_label: 'Día Libre',
       is_completed: false,
+      user_id: session?.user?.id
     };
 
     const { data, error } = await supabase.from('daily_plan').insert([newRecord]).select();
@@ -462,7 +488,8 @@ export default function Home() {
 
         const sourceDayMeals = (sourceMealsData && sourceMealsData.length > 0)
           ? sourceMealsData
-          : template.meals.map(m => ({ ...m, date: sourceDate, is_completed: false, rating: 5 }));
+          : template.meals.map(m => ({ ...m, date: sourceDate, is_completed: false,
+                user_id: session?.user?.id, rating: 5 }));
 
         // Intercambiar comida a comida
         for (const type of MEAL_TYPES) {
@@ -491,6 +518,7 @@ export default function Home() {
                 is_free_meal: !!sMeal.is_free_meal,
                 free_meal_label: sMeal.free_meal_label || null,
                 is_completed: false,
+                user_id: session?.user?.id,
                 rating: 5,
               }]);
             }
@@ -515,6 +543,7 @@ export default function Home() {
                 is_free_meal: !!cMeal.is_free_meal,
                 free_meal_label: cMeal.free_meal_label || null,
                 is_completed: false,
+                user_id: session?.user?.id,
                 rating: 5,
               }]);
             }
@@ -548,6 +577,7 @@ export default function Home() {
               is_free_meal: !!tMeal.is_free_meal,
               free_meal_label: tMeal.free_meal_label || null,
               is_completed: false,
+                user_id: session?.user?.id,
               rating: 5,
             }]);
           }
@@ -581,7 +611,8 @@ export default function Home() {
       recipe_title: activeRecipe,
       rating: currentRating,
       notes: currentNotes,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      user_id: session?.user?.id
     };
 
     const { error } = await supabase
@@ -660,6 +691,41 @@ export default function Home() {
   const fullReportText = generateFullReport();
   const notesCount = reviewedItems.filter(r => r.notes && r.notes.trim()).length;
 
+  if (loadingSession) {
+    return (
+      <main className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">
+        <div className="animate-pulse text-pink-400 font-medium">Cargando...</div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="min-h-screen bg-[#FAF7F2] flex items-center justify-center p-6 text-slate-700 font-sans">
+        <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-xl shadow-pink-100/50 border border-pink-50 flex flex-col items-center text-center">
+          <div className="w-16 h-16 bg-pink-50 rounded-full flex items-center justify-center mb-6">
+            <Sparkles className="text-pink-400" size={32} />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">Bienvenida ✨</h1>
+          <p className="text-sm text-slate-500 mb-8">Inicia sesión para continuar con tu plan diario de Dieta Alba.</p>
+          
+          <button
+            onClick={() => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/auth/callback` } })}
+            className="w-full bg-white border-2 border-slate-100 hover:border-pink-200 hover:bg-pink-50 text-slate-700 font-semibold py-3 px-4 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-sm hover:shadow-md"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+            </svg>
+            Continuar con Google
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#FAF7F2] text-slate-700 pb-28 max-w-md mx-auto relative font-sans">
       {/* Toast de Copiado */}
@@ -687,8 +753,16 @@ export default function Home() {
               {currentTab === 'plan' ? 'Mantra Diario' : 'Reporte para la chica'}
             </span>
           </div>
-          <div className="w-8 h-8 bg-white/70 backdrop-blur-md rounded-full flex items-center justify-center text-xs font-bold text-pink-500 shadow-sm border border-pink-200">
-            A
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => supabase.auth.signOut()}
+              className="text-[10px] text-pink-500/70 hover:text-pink-600 bg-white/40 hover:bg-white/70 transition-colors px-2 py-1 rounded-full font-medium"
+            >
+              Salir
+            </button>
+            <div className="w-8 h-8 bg-white/70 backdrop-blur-md rounded-full flex items-center justify-center text-xs font-bold text-pink-500 shadow-sm border border-pink-200">
+              {session?.user?.email?.charAt(0).toUpperCase() || 'A'}
+            </div>
           </div>
         </div>
 
