@@ -107,7 +107,18 @@ export default function Home() {
       .eq('date', selectedDate)
       .order('created_at', { ascending: true });
 
-    if (mealsData) setMeals((mealsData as Meal[]) || []);
+    if (mealsData) {
+      const orderMap = MEAL_TYPES.reduce<Record<string, number>>((acc, type, idx) => {
+        acc[type] = idx;
+        return acc;
+      }, {});
+      const sortedMeals = [...(mealsData as Meal[])].sort((a, b) => {
+        const orderA = orderMap[a.meal_type] ?? 99;
+        const orderB = orderMap[b.meal_type] ?? 99;
+        return orderA - orderB;
+      });
+      setMeals(sortedMeals);
+    }
 
     // 2. Cargar todas las notas/ratings por receta
     const { data: reviewsData } = await supabase
@@ -275,7 +286,16 @@ export default function Home() {
     const { data, error } = await supabase.from('daily_plan').insert([newRecord]).select();
 
     if (data && data.length > 0) {
-      setMeals([...meals, data[0] as Meal]);
+      const orderMap = MEAL_TYPES.reduce<Record<string, number>>((acc, type, idx) => {
+        acc[type] = idx;
+        return acc;
+      }, {});
+      const updated = [...meals, data[0] as Meal].sort((a, b) => {
+        const orderA = orderMap[a.meal_type] ?? 99;
+        const orderB = orderMap[b.meal_type] ?? 99;
+        return orderA - orderB;
+      });
+      setMeals(updated);
       setShowAddMealModal(false);
       setNewMealRecipeTitle('');
     }
