@@ -22,7 +22,9 @@ import {
   Trash2, 
   Send,
   Heart,
-  ChevronDown
+  ChevronDown,
+  ArrowLeftRight,
+  RotateCcw
 } from 'lucide-react';
 
 type Meal = {
@@ -64,6 +66,89 @@ const MOTIVATIONAL_QUOTES = [
 
 const MEAL_TYPES = ['DESAYUNO', 'MEDIA MAÑANA', 'ALMUERZO', 'MERIENDA', 'CENA'];
 
+const WEEKDAY_TEMPLATES: Record<string, {
+  label: string;
+  meals: {
+    meal_type: string;
+    title: string;
+    ingredients: string;
+    recipe_url?: string | null;
+    is_free_meal?: boolean;
+    free_meal_label?: string | null;
+  }[];
+}> = {
+  'LUNES': {
+    label: 'Lunes',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Tostada de pavo y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 60g de pavo. Café o infusión.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Berenjena rellena con lomo y gazpacho', ingredients: 'Berenjena rellena con tomate frito sin azúcar, lomo troceado 100g, cebollita, queso 20g + 1 vasito de gazpacho grande.' },
+      { meal_type: 'MERIENDA', title: 'Yogurt Alpro con fruta y miel', ingredients: 'Medio yogurt Alpro con fruta troceada y añade una cucharadita de miel.' },
+      { meal_type: 'CENA', title: 'Pinchitos de pollo con ensalada cherry y feta', ingredients: 'Pinchitos de pollo 120g a la plancha + ensalada de tomate cherry, medio aguacate, canónigos y 4 cubitos de queso feta.' },
+    ]
+  },
+  'MARTES': {
+    label: 'Martes',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Tostada de jamón serrano y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 40g de jamón serrano. Café o infusión.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Pastel de patata sabor pizza', ingredients: '200g de patata, 2 latas de atún, 2 cdas de tomate frito sin azúcar, 1 cda de parmesano, 1 huevo, orégano y sal.' },
+      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
+      { meal_type: 'CENA', title: 'Revuelto de huevos con calabacín', ingredients: 'Revuelto de 2 huevos con calabacín salteados.' },
+    ]
+  },
+  'MIÉRCOLES': {
+    label: 'Miércoles',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Yogurt proteico con chía y avena', ingredients: '1 yogurt natural de proteínas recomendado con semillas de chía remojadas del día anterior y 35-40g de avena.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Sepia a la plancha con salsa verde y berenjena', ingredients: 'Sepia 180g a la plancha con un poco de salsa verde (ajito, perejil, aceite y sal) y berenjena a la plancha + 1 vasito de gazpacho grande.' },
+      { meal_type: 'MERIENDA', title: 'Bizcocho de cacahuete', ingredients: '1 huevo, 1 plátano, 1 Cda de crema de cacahuete y 1 onza de chocolate.' },
+      { meal_type: 'CENA', title: 'Judías verdes con ajito y jamón', ingredients: 'Judías verdes a la plancha con ajito y 90g de taquitos de jamón.' },
+    ]
+  },
+  'JUEVES': {
+    label: 'Jueves',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Tostada de jamón serrano y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 40g de jamón serrano. Café o infusión.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Risotto de champiñones, pollo y queso', ingredients: '60g de arroz, champiñones, 100g de tiras de pollo y 20g de queso.' },
+      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
+      { meal_type: 'CENA', title: 'Ensalada de pimientos del piquillo, atún y feta', ingredients: 'Ensalada de pimientos del piquillo, 1 lata de atún y 7 cubitos de queso feta.' },
+    ]
+  },
+  'VIERNES': {
+    label: 'Viernes',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Tostada de tomate y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y tomate. Café o infusión.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Filete de merluza con ensalada y gazpacho', ingredients: 'Filete de merluza (200g) con ensalada de rúcula, tomate y cebolla (aliñar al gusto) + 1 vasito de gazpacho grande.' },
+      { meal_type: 'MERIENDA', title: 'Yogurt Alpro con fruta y miel', ingredients: 'Medio yogurt Alpro con fruta troceada y añade una cucharadita de miel.' },
+      { meal_type: 'CENA', title: 'Panini saludable', ingredients: '60g de pan, tomate frito, 1 lata de atún, aceitunas cortadas 20g, queso rallado 30g y orégano.' },
+    ]
+  },
+  'SÁBADO': {
+    label: 'Sábado',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Yogurt proteico con chía y avena', ingredients: '1 yogurt natural de proteínas recomendado con semillas de chía remojadas del día anterior y 35-40g de avena.' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
+      { meal_type: 'ALMUERZO', title: 'Espaguetis jugosos con champiñones, pollo y jamón', ingredients: 'Pasta 60g con salteado de champiñones, cebolla, pollo 90g y 40g de taquitos de jamón. Salsa: 1 cda de yogur griego natural y otra de parmesano.' },
+      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
+      { meal_type: 'CENA', title: 'Crackers con queso rallado y pavo', ingredients: '2 tostaditas crackers con 30g de queso rallado y 60g de pavo cocido.' },
+    ]
+  },
+  'DOMINGO': {
+    label: 'Domingo',
+    meals: [
+      { meal_type: 'DESAYUNO', title: 'Desayuno a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
+      { meal_type: 'MEDIA MAÑANA', title: 'Media mañana a elegir ✨', ingredients: 'Elige la opción que más te guste de la semana (1 yogurt 0% o 1 pieza de fruta).', is_free_meal: true, free_meal_label: 'A elegir' },
+      { meal_type: 'ALMUERZO', title: 'Almuerzo a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
+      { meal_type: 'MERIENDA', title: 'Merienda a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
+      { meal_type: 'CENA', title: 'Cena Libre 🎉', ingredients: 'Cena libre: disfruta de la cena que más te apetezca.', is_free_meal: true, free_meal_label: 'Libre 🎉' },
+    ]
+  }
+};
+
 export default function Home() {
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -72,6 +157,13 @@ export default function Home() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [quoteIndex, setQuoteIndex] = useState<number>(0);
+
+  // Estado para modal de cargar o intercambiar día
+  const [showLoadDayModal, setShowLoadDayModal] = useState<boolean>(false);
+  const [selectedSourceDay, setSelectedSourceDay] = useState<string>('LUNES');
+  const [loadDayMode, setLoadDayMode] = useState<'copy' | 'swap'>('copy');
+  const [keepCompletedMeals, setKeepCompletedMeals] = useState<boolean>(true);
+  const [applyingDayChange, setApplyingDayChange] = useState<boolean>(false);
 
   // Estado para la ventana de notas/ratings
   const [activeRecipe, setActiveRecipe] = useState<string | null>(null);
@@ -302,6 +394,172 @@ export default function Home() {
     setSavingNewMeal(false);
   };
 
+  // Obtener la fecha YYYY-MM-DD correspondiente a un día de la semana dentro de la semana de baseDateStr
+  const getWeekdayDateInCurrentWeek = (weekdayKey: string, baseDateStr: string): string => {
+    const DAY_MAP: Record<string, number> = {
+      'LUNES': 1,
+      'MARTES': 2,
+      'MIÉRCOLES': 3,
+      'JUEVES': 4,
+      'VIERNES': 5,
+      'SÁBADO': 6,
+      'DOMINGO': 0,
+    };
+    const targetDayNumber = DAY_MAP[weekdayKey];
+    const base = new Date(baseDateStr);
+    const baseDay = base.getDay(); // 0 es Domingo, 1 es Lunes...
+    const diffToMonday = baseDay === 0 ? -6 : 1 - baseDay;
+    const monday = new Date(base);
+    monday.setDate(base.getDate() + diffToMonday);
+
+    const target = new Date(monday);
+    const addDays = targetDayNumber === 0 ? 6 : targetDayNumber - 1;
+    target.setDate(monday.getDate() + addDays);
+    return target.toISOString().split('T')[0];
+  };
+
+  // Cargar o intercambiar el menú de otro día
+  const handleApplyDayMenu = async () => {
+    setApplyingDayChange(true);
+    try {
+      const template = WEEKDAY_TEMPLATES[selectedSourceDay];
+      if (!template) return;
+
+      const sourceDate = getWeekdayDateInCurrentWeek(selectedSourceDay, selectedDate);
+
+      if (loadDayMode === 'swap') {
+        if (sourceDate === selectedDate) {
+          setShowLoadDayModal(false);
+          return;
+        }
+
+        // 1. Obtener comidas actuales
+        const { data: currentMealsData } = await supabase
+          .from('daily_plan')
+          .select('*')
+          .eq('date', selectedDate);
+
+        // 2. Obtener comidas del día origen
+        const { data: sourceMealsData } = await supabase
+          .from('daily_plan')
+          .select('*')
+          .eq('date', sourceDate);
+
+        const currentDayMeals = currentMealsData || [];
+        const sourceDayMeals = (sourceMealsData && sourceMealsData.length > 0)
+          ? sourceMealsData
+          : template.meals.map(m => ({ ...m, date: sourceDate, is_completed: false, rating: 5 }));
+
+        // Intercambiar tipo por tipo
+        for (const type of MEAL_TYPES) {
+          const cMeal = currentDayMeals.find(m => m.meal_type === type);
+          const sMeal = sourceDayMeals.find((m: any) => m.meal_type === type);
+
+          // Si el usuario marcó mantener comidas completadas y la comida actual está completada, no sobreescribir la de hoy
+          const skipCurrentUpdate = keepCompletedMeals && cMeal?.is_completed;
+          const skipSourceUpdate = keepCompletedMeals && sMeal?.is_completed;
+
+          if (sMeal && !skipCurrentUpdate) {
+            if (cMeal) {
+              await supabase.from('daily_plan').update({
+                title: sMeal.title,
+                ingredients: sMeal.ingredients,
+                recipe_url: sMeal.recipe_url || null,
+                is_free_meal: !!sMeal.is_free_meal,
+                free_meal_label: sMeal.free_meal_label || null,
+              }).eq('id', cMeal.id);
+            } else {
+              await supabase.from('daily_plan').insert([{
+                date: selectedDate,
+                meal_type: type,
+                title: sMeal.title,
+                ingredients: sMeal.ingredients,
+                recipe_url: sMeal.recipe_url || null,
+                is_free_meal: !!sMeal.is_free_meal,
+                free_meal_label: sMeal.free_meal_label || null,
+                is_completed: false,
+                rating: 5,
+              }]);
+            }
+          }
+
+          if (cMeal && !skipSourceUpdate) {
+            if (sMeal?.id) {
+              await supabase.from('daily_plan').update({
+                title: cMeal.title,
+                ingredients: cMeal.ingredients,
+                recipe_url: cMeal.recipe_url || null,
+                is_free_meal: !!cMeal.is_free_meal,
+                free_meal_label: cMeal.free_meal_label || null,
+              }).eq('id', sMeal.id);
+            } else {
+              await supabase.from('daily_plan').insert([{
+                date: sourceDate,
+                meal_type: type,
+                title: cMeal.title,
+                ingredients: cMeal.ingredients,
+                recipe_url: cMeal.recipe_url || null,
+                is_free_meal: !!cMeal.is_free_meal,
+                free_meal_label: cMeal.free_meal_label || null,
+                is_completed: false,
+                rating: 5,
+              }]);
+            }
+          }
+        }
+        setCopiedKey('day_swapped');
+      } else {
+        // Modo COPIAR a la fecha seleccionada
+        const { data: sourceMealsData } = await supabase
+          .from('daily_plan')
+          .select('*')
+          .eq('date', sourceDate);
+
+        const mealsToCopy = (sourceMealsData && sourceMealsData.length > 0)
+          ? sourceMealsData
+          : template.meals;
+
+        for (const tMeal of mealsToCopy) {
+          const existing = meals.find(m => m.meal_type === tMeal.meal_type);
+          if (keepCompletedMeals && existing?.is_completed) {
+            continue;
+          }
+
+          if (existing) {
+            await supabase.from('daily_plan').update({
+              title: tMeal.title,
+              ingredients: tMeal.ingredients,
+              recipe_url: tMeal.recipe_url || null,
+              is_free_meal: !!tMeal.is_free_meal,
+              free_meal_label: tMeal.free_meal_label || null,
+            }).eq('id', existing.id);
+          } else {
+            await supabase.from('daily_plan').insert([{
+              date: selectedDate,
+              meal_type: tMeal.meal_type,
+              title: tMeal.title,
+              ingredients: tMeal.ingredients,
+              recipe_url: tMeal.recipe_url || null,
+              is_free_meal: !!tMeal.is_free_meal,
+              free_meal_label: tMeal.free_meal_label || null,
+              is_completed: false,
+              rating: 5,
+            }]);
+          }
+        }
+        setCopiedKey('day_applied');
+      }
+
+      await fetchData();
+      setShowLoadDayModal(false);
+      setTimeout(() => setCopiedKey(null), 2500);
+    } catch (err) {
+      console.error('Error aplicando menú del día:', err);
+    } finally {
+      setApplyingDayChange(false);
+    }
+  };
+
   // Modal de notas
   const openReviewModal = (title: string) => {
     setActiveRecipe(title);
@@ -406,7 +664,11 @@ export default function Home() {
           <span>
             {copiedKey === 'all' 
               ? '¡Informe completo copiado! Listo para WhatsApp 💖' 
-              : '¡Nota copiada al portapapeles! ✨'}
+              : copiedKey === 'day_applied'
+                ? '¡Menú del día actualizado correctamente! ✨'
+                : copiedKey === 'day_swapped'
+                  ? '¡Días intercambiados correctamente! 🔄'
+                  : '¡Nota copiada al portapapeles! ✨'}
           </span>
         </div>
       )}
@@ -472,6 +734,14 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setShowLoadDayModal(true)}
+                className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60"
+                title="Cargar menú de otro día o intercambiar"
+              >
+                <ArrowLeftRight size={12} />
+                <span>Cargar día</span>
+              </button>
+              <button
                 onClick={() => setShowAddMealModal(true)}
                 className="text-[11px] text-pink-600 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-pink-200/60"
                 title="Añadir comida libre"
@@ -491,14 +761,23 @@ export default function Home() {
             <div className="bg-white p-8 rounded-3xl text-center shadow-sm border border-pink-50">
               <Utensils className="mx-auto text-pink-200 mb-3" size={36} />
               <h3 className="text-sm font-semibold text-slate-700 mb-1">Día de descanso o libre 🌸</h3>
-              <p className="text-slate-400 text-xs font-light mb-5">No tienes comidas prefijadas para este día. Puedes elegir qué recetas tomar hoy.</p>
-              <button
-                onClick={() => setShowAddMealModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all"
-              >
-                <Plus size={15} />
-                <span>Elegir receta para este día libre</span>
-              </button>
+              <p className="text-slate-400 text-xs font-light mb-5">No tienes comidas prefijadas para este día. Puedes elegir qué recetas tomar hoy o cargar el menú de otro día.</p>
+              <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+                <button
+                  onClick={() => setShowLoadDayModal(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all"
+                >
+                  <ArrowLeftRight size={14} />
+                  <span>Cargar menú de otro día</span>
+                </button>
+                <button
+                  onClick={() => setShowAddMealModal(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-2xl transition-all"
+                >
+                  <Plus size={14} />
+                  <span>Añadir comida suelta</span>
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3.5">
@@ -903,6 +1182,132 @@ export default function Home() {
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity"
             >
               {savingNewMeal ? 'Guardando...' : 'Añadir a este día 🎉'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PARA CARGAR O INTERCAMBIAR MENÚ DE OTRO DÍA */}
+      {showLoadDayModal && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
+                  <ArrowLeftRight size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">Menú de otro día</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Día actual: <span className="font-medium text-slate-600 capitalize">{new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}</span>
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowLoadDayModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Selector de Modo: Copiar vs Intercambiar */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100/80 rounded-2xl mb-4 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setLoadDayMode('copy')}
+                className={`py-2 px-3 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
+                  loadDayMode === 'copy'
+                    ? 'bg-white text-pink-600 shadow-sm font-semibold'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <span>📥 Copiar a hoy</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoadDayMode('swap')}
+                className={`py-2 px-3 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
+                  loadDayMode === 'swap'
+                    ? 'bg-white text-purple-600 shadow-sm font-semibold'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <span>🔄 Intercambiar</span>
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 mb-2 font-medium">
+              {loadDayMode === 'copy' 
+                ? '¿Qué menú semanal quieres cargar en este día?' 
+                : '¿Con qué día de la semana quieres intercambiar?'}
+            </p>
+
+            {/* Lista de Días Disponibles */}
+            <div className="space-y-2 mb-4 max-h-56 overflow-y-auto pr-1">
+              {Object.entries(WEEKDAY_TEMPLATES).map(([key, dayData]) => {
+                const isSelected = selectedSourceDay === key;
+                const lunchMeal = dayData.meals.find(m => m.meal_type === 'ALMUERZO');
+                const dinnerMeal = dayData.meals.find(m => m.meal_type === 'CENA');
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedSourceDay(key)}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all ${
+                      isSelected
+                        ? 'border-pink-300 bg-pink-50/60 ring-2 ring-pink-200/50'
+                        : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-bold ${isSelected ? 'text-pink-600' : 'text-slate-700'}`}>
+                        {dayData.label}
+                      </span>
+                      {isSelected && (
+                        <span className="w-5 h-5 rounded-full bg-pink-500 text-white flex items-center justify-center text-[10px]">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 space-y-0.5 font-light">
+                      <div className="truncate">🥗 <span className="font-medium text-slate-600">Almuerzo:</span> {lunchMeal?.title}</div>
+                      <div className="truncate">🍲 <span className="font-medium text-slate-600">Cena:</span> {dinnerMeal?.title}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Opción de proteger comidas ya completadas */}
+            {meals.some(m => m.is_completed) && (
+              <label className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-50/70 border border-amber-200/70 text-amber-800 text-[11px] mb-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={keepCompletedMeals}
+                  onChange={(e) => setKeepCompletedMeals(e.target.checked)}
+                  className="mt-0.5 rounded text-pink-500 focus:ring-pink-300"
+                />
+                <div>
+                  <span className="font-semibold block">Mantener comidas ya completadas hoy</span>
+                  <span className="text-amber-700/80 font-light">
+                    Hay {meals.filter(m => m.is_completed).length} comida(s) completada(s) hoy que no se modificarán.
+                  </span>
+                </div>
+              </label>
+            )}
+
+            <button
+              onClick={handleApplyDayMenu}
+              disabled={applyingDayChange}
+              className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
+            >
+              {applyingDayChange ? (
+                <span>Aplicando cambios...</span>
+              ) : (
+                <>
+                  <Sparkles size={14} />
+                  <span>{loadDayMode === 'copy' ? `Cargar menú de ${WEEKDAY_TEMPLATES[selectedSourceDay]?.label}` : `Intercambiar con ${WEEKDAY_TEMPLATES[selectedSourceDay]?.label}`}</span>
+                </>
+              )}
             </button>
           </div>
         </div>
