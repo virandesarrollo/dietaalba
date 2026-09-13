@@ -142,7 +142,6 @@ export default function Home() {
             <span className="text-xs font-semibold uppercase tracking-widest text-pink-500">Mantra Diario</span>
           </div>
           <div className="w-8 h-8 bg-white/70 backdrop-blur-md rounded-full flex items-center justify-center text-xs font-bold text-pink-500 shadow-sm border border-pink-200">
-            A✨
             A
           </div>
         </div>
