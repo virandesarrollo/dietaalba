@@ -63,6 +63,11 @@ type Recipe = {
   recipe_url?: string | null;
 };
 
+type SourceDay = {
+  date: string;
+  meals: Meal[];
+};
+
 const MOTIVATIONAL_QUOTES = [
   "Un día a la vez, lo estás haciendo genial ✨",
   "Nutre tu cuerpo con amor y constancia 🌸",
@@ -187,7 +192,9 @@ export default function Home() {
 
   // Estado para modal de cargar o intercambiar día
   const [showLoadDayModal, setShowLoadDayModal] = useState<boolean>(false);
-  const [selectedSourceDay, setSelectedSourceDay] = useState<string>('LUNES');
+  const [selectedSourceDate, setSelectedSourceDate] = useState<string>('');
+  const [availableSourceDays, setAvailableSourceDays] = useState<SourceDay[]>([]);
+  const [loadingSourceDays, setLoadingSourceDays] = useState<boolean>(false);
   const [loadDayMode, setLoadDayMode] = useState<'copy' | 'swap'>('copy');
   const [keepCompletedMeals, setKeepCompletedMeals] = useState<boolean>(true);
   const [applyingDayChange, setApplyingDayChange] = useState<boolean>(false);
@@ -208,6 +215,7 @@ export default function Home() {
   // Estado para feedback de copiado al portapapeles
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const requestGuardRef = useRef(createLatestRequestGuard());
+  const sourceDaysGuardRef = useRef(createLatestRequestGuard());
   const mutationGuardRef = useRef(createLatestRequestGuard());
   const reviewMutationBusyRef = useRef(createMutationLock());
 
@@ -221,6 +229,7 @@ export default function Home() {
     const initialSessionGeneration = requestGuard.currentGeneration();
     const applyAuthSession = (nextSession: Session | null) => {
       const generation = requestGuard.invalidate();
+      sourceDaysGuardRef.current.invalidate();
       mutationGuardRef.current.invalidate();
       reviewMutationBusyRef.current.reset();
       setSession(nextSession);
@@ -228,6 +237,10 @@ export default function Home() {
       setMeals([]);
       setReviews({});
       setRecipes([]);
+      setAvailableSourceDays([]);
+      setSelectedSourceDate('');
+      setShowLoadDayModal(false);
+      setLoadingSourceDays(false);
       setFeatureCapabilities(deriveFeatureCapabilities([]));
       setCurrentTab('plan');
       setActiveRecipe(null);
@@ -253,6 +266,7 @@ export default function Home() {
 
     return () => {
       requestGuard.invalidate();
+      sourceDaysGuardRef.current.invalidate();
       subscription.unsubscribe();
     };
   }, []);
@@ -413,8 +427,12 @@ export default function Home() {
 
   const selectDate = (nextDate: string) => {
     requestGuardRef.current.invalidateRequests();
+    sourceDaysGuardRef.current.invalidateRequests();
     setLoading(true);
     setMeals([]);
+    setAvailableSourceDays([]);
+    setSelectedSourceDate('');
+    setShowLoadDayModal(false);
     setSelectedDate(nextDate);
   };
 
@@ -511,42 +529,61 @@ export default function Home() {
     setSavingNewMeal(false);
   };
 
-  // Obtener la fecha YYYY-MM-DD correspondiente a un día de la semana dentro de la semana activa
-  const getTargetSwapDate = (weekdayKey: string, baseDateStr: string): string => {
-    const DAY_NUMBER_MAP: Record<string, number> = {
-      'LUNES': 1, 'MARTES': 2, 'MIÉRCOLES': 3, 'JUEVES': 4, 'VIERNES': 5, 'SÁBADO': 6, 'DOMINGO': 7
-    };
-    const targetDayNum = DAY_NUMBER_MAP[weekdayKey] || 1;
-    let monday: Date;
-    if (baseDateStr === '2026-09-12' || baseDateStr === '2026-09-13') {
-      monday = parseDateString('2026-09-14');
+  const loadAvailableSourceDays = async () => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const sourceDaysGuard = sourceDaysGuardRef.current;
+    const request = sourceDaysGuard.startRequest(
+      sourceDaysGuard.currentGeneration(),
+      userId,
+      selectedDate,
+    );
+
+    setLoadingSourceDays(true);
+    setAvailableSourceDays([]);
+    setSelectedSourceDate('');
+    setShowLoadDayModal(true);
+    const { data, error } = await supabase
+      .from('daily_plan')
+      .select('*')
+      .eq('user_id', userId)
+      .neq('date', selectedDate)
+      .order('date', { ascending: false });
+    if (!sourceDaysGuard.isCurrent(request)) return;
+
+    if (error) {
+      setAvailableSourceDays([]);
+      setSelectedSourceDate('');
     } else {
-      const base = parseDateString(baseDateStr);
-      const day = base.getDay(); // 0 es Domingo, 1 es Lunes...
-      const diffToMon = day === 0 ? -6 : 1 - day;
-      monday = new Date(base.getFullYear(), base.getMonth(), base.getDate() + diffToMon);
+      const grouped = new Map<string, Meal[]>();
+      for (const meal of (data ?? []) as Meal[]) {
+        grouped.set(meal.date, [...(grouped.get(meal.date) ?? []), meal]);
+      }
+      const days = Array.from(grouped, ([date, dayMeals]) => ({ date, meals: dayMeals }));
+      setAvailableSourceDays(days);
+      setSelectedSourceDate(days[0]?.date ?? '');
     }
-    const targetDateObj = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + (targetDayNum - 1));
-    return formatDateString(targetDateObj);
+    setLoadingSourceDays(false);
   };
 
   // Cargar o intercambiar el menú de otro día
   const handleApplyDayMenu = async () => {
+    const userId = session?.user?.id;
+    if (!userId || !selectedSourceDate) return;
     setApplyingDayChange(true);
     try {
-      const template = WEEKDAY_TEMPLATES[selectedSourceDay];
-      if (!template) return;
-
       // 1. Obtener siempre las comidas actuales de la base de datos para selectedDate
       const { data: currentMealsData } = await supabase
         .from('daily_plan')
         .select('*')
-        .eq('date', selectedDate);
+        .eq('date', selectedDate)
+        .eq('user_id', userId);
 
       const currentDayMeals = currentMealsData || [];
 
       if (loadDayMode === 'swap') {
-        const sourceDate = getTargetSwapDate(selectedSourceDay, selectedDate);
+        const sourceDate = selectedSourceDate;
 
         if (sourceDate === selectedDate) {
           setShowLoadDayModal(false);
@@ -557,12 +594,10 @@ export default function Home() {
         const { data: sourceMealsData } = await supabase
           .from('daily_plan')
           .select('*')
-          .eq('date', sourceDate);
+          .eq('date', sourceDate)
+          .eq('user_id', userId);
 
-        const sourceDayMeals = (sourceMealsData && sourceMealsData.length > 0)
-          ? sourceMealsData
-          : template.meals.map(m => ({ ...m, date: sourceDate, is_completed: false,
-                user_id: session?.user?.id, rating: 5 }));
+        const sourceDayMeals = sourceMealsData ?? [];
 
         // Intercambiar comida a comida
         for (const type of MEAL_TYPES) {
@@ -591,7 +626,7 @@ export default function Home() {
                 is_free_meal: !!sMeal.is_free_meal,
                 free_meal_label: sMeal.free_meal_label || null,
                 is_completed: false,
-                user_id: session?.user?.id,
+                user_id: userId,
                 rating: 5,
               }]);
             }
@@ -616,7 +651,7 @@ export default function Home() {
                 is_free_meal: !!cMeal.is_free_meal,
                 free_meal_label: cMeal.free_meal_label || null,
                 is_completed: false,
-                user_id: session?.user?.id,
+                user_id: userId,
                 rating: 5,
               }]);
             }
@@ -624,8 +659,8 @@ export default function Home() {
         }
         setCopiedKey('day_swapped');
       } else {
-        // Modo COPIAR: Aplica directamente el menú canónico oficial de template.meals
-        for (const tMeal of template.meals) {
+        const sourceDay = availableSourceDays.find((day) => day.date === selectedSourceDate);
+        for (const tMeal of sourceDay?.meals ?? []) {
           const existing = currentDayMeals.find(m => m.meal_type === tMeal.meal_type);
 
           if (keepCompletedMeals && existing?.is_completed) {
@@ -650,7 +685,7 @@ export default function Home() {
               is_free_meal: !!tMeal.is_free_meal,
               free_meal_label: tMeal.free_meal_label || null,
               is_completed: false,
-                user_id: session?.user?.id,
+              user_id: userId,
               rating: 5,
             }]);
           }
@@ -929,7 +964,7 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowLoadDayModal(true)}
+                onClick={() => void loadAvailableSourceDays()}
                 className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60"
                 title="Cargar menú de otro día o intercambiar"
               >
@@ -959,7 +994,7 @@ export default function Home() {
               <p className="text-slate-400 text-xs font-light mb-5">No tienes comidas prefijadas para este día. Puedes elegir qué recetas tomar hoy o cargar el menú de otro día.</p>
               <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
                 <button
-                  onClick={() => setShowLoadDayModal(true)}
+                  onClick={() => void loadAvailableSourceDays()}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all"
                 >
                   <ArrowLeftRight size={14} />
@@ -1444,16 +1479,24 @@ export default function Home() {
 
             {/* Lista de Días Disponibles */}
             <div className="space-y-2 mb-4 max-h-56 overflow-y-auto pr-1">
-              {Object.entries(WEEKDAY_TEMPLATES).map(([key, dayData]) => {
-                const isSelected = selectedSourceDay === key;
+              {loadingSourceDays && (
+                <p className="rounded-2xl bg-slate-50 p-4 text-center text-xs text-slate-400">Cargando tus días…</p>
+              )}
+              {!loadingSourceDays && availableSourceDays.length === 0 && (
+                <p className="rounded-2xl bg-slate-50 p-4 text-center text-xs text-slate-400">
+                  No tienes otros días con comidas para cargar.
+                </p>
+              )}
+              {availableSourceDays.map((dayData) => {
+                const isSelected = selectedSourceDate === dayData.date;
                 const lunchMeal = dayData.meals.find(m => m.meal_type === 'ALMUERZO');
                 const dinnerMeal = dayData.meals.find(m => m.meal_type === 'CENA');
 
                 return (
                   <button
-                    key={key}
+                    key={dayData.date}
                     type="button"
-                    onClick={() => setSelectedSourceDay(key)}
+                    onClick={() => setSelectedSourceDate(dayData.date)}
                     className={`w-full text-left p-3 rounded-2xl border transition-all ${
                       isSelected
                         ? 'border-pink-300 bg-pink-50/60 ring-2 ring-pink-200/50'
@@ -1462,7 +1505,9 @@ export default function Home() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className={`text-xs font-bold ${isSelected ? 'text-pink-600' : 'text-slate-700'}`}>
-                        {dayData.label}
+                        {parseDateString(dayData.date).toLocaleDateString('es-ES', {
+                          weekday: 'long', day: 'numeric', month: 'short', year: 'numeric'
+                        })}
                       </span>
                       {isSelected && (
                         <span className="w-5 h-5 rounded-full bg-pink-500 text-white flex items-center justify-center text-[10px]">
@@ -1499,7 +1544,7 @@ export default function Home() {
 
             <button
               onClick={handleApplyDayMenu}
-              disabled={applyingDayChange}
+              disabled={applyingDayChange || loadingSourceDays || !selectedSourceDate}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
             >
               {applyingDayChange ? (
@@ -1507,7 +1552,7 @@ export default function Home() {
               ) : (
                 <>
                   <Sparkles size={14} />
-                  <span>{loadDayMode === 'copy' ? `Cargar menú de ${WEEKDAY_TEMPLATES[selectedSourceDay]?.label}` : `Intercambiar con ${WEEKDAY_TEMPLATES[selectedSourceDay]?.label}`}</span>
+                  <span>{loadDayMode === 'copy' ? 'Cargar este menú' : 'Intercambiar con este día'}</span>
                 </>
               )}
             </button>
