@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "Alba's Lifestyle ✨",
@@ -26,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="bg-[#FAF7F2] text-slate-700 font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased"><ThemeProvider>{children}</ThemeProvider></body>
     </html>
   );
 }

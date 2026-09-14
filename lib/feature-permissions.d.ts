@@ -1,9 +1,11 @@
-export type FeatureCode = 'rate_recipes' | 'send_report';
+export type FeatureCode = 'rate_recipes' | 'send_report' | 'access_settings' | 'change_theme';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
   canSendReport: boolean;
   canOpenNotes: boolean;
+  canAccessSettings: boolean;
+  canChangeTheme: boolean;
 };
 
 export function deriveFeatureCapabilities(

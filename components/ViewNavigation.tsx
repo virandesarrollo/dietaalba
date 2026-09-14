@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardList, Salad, Users } from 'lucide-react';
+import { ClipboardList, Salad, Settings, Users } from 'lucide-react';
 import {
   deriveAvailableViews,
   deriveCapabilities,
@@ -10,12 +10,14 @@ import {
   type Capabilities,
   type RoleCode,
 } from '@/lib/authz.js';
+import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { supabase } from '@/lib/supabase';
 
 const VIEW_DATA = {
   patient: { label: 'Mi dieta', path: '/', icon: Salad },
   admin: { label: 'Administrar dietas', path: '/admin', icon: ClipboardList },
   users: { label: 'Usuarios y permisos', path: '/users', icon: Users },
+  settings: { label: 'Ajustes', path: '/settings', icon: Settings },
 } as const;
 
 type Props = {
@@ -26,6 +28,7 @@ type Props = {
 export function ViewNavigation({ current, vertical = false }: Props) {
   const router = useRouter();
   const [resolvedCapabilities, setResolvedCapabilities] = useState<Capabilities | null>(null);
+  const [canAccessSettings, setCanAccessSettings] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -41,14 +44,20 @@ export function ViewNavigation({ current, vertical = false }: Props) {
       if (!active || profileResult.error || membershipResult.error) return;
 
       const membership = membershipResult.data as { id: string } | null;
-      const rolesResult = membership
-        ? await supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
-        : { data: [] as { role_code: RoleCode }[], error: null };
-      if (!active || rolesResult.error) return;
+      const [rolesResult, featuresResult] = await Promise.all([
+        membership
+          ? supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
+          : Promise.resolve({ data: [] as { role_code: RoleCode }[], error: null }),
+        supabase.rpc('get_my_features'),
+      ]);
+      if (!active || rolesResult.error || featuresResult.error) return;
 
       const roles = (rolesResult.data ?? []).map((row) => (row as { role_code: RoleCode }).role_code);
       const profile = profileResult.data as { is_sudo?: boolean } | null;
       setResolvedCapabilities(deriveCapabilities(Boolean(profile?.is_sudo), roles));
+      setCanAccessSettings(
+        deriveFeatureCapabilities(normalizeFeatureRows(featuresResult.data)).canAccessSettings,
+      );
     }
 
     void loadCapabilities();
@@ -56,7 +65,7 @@ export function ViewNavigation({ current, vertical = false }: Props) {
   }, []);
 
   if (!resolvedCapabilities) return null;
-  const views = deriveAvailableViews(resolvedCapabilities);
+  const views = deriveAvailableViews(resolvedCapabilities, { canAccessSettings });
   if (views.length < 2) return null;
 
   return (

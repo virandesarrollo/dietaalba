@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createMutationLock } from '../lib/feature-permissions.js';
 import {
   assignableRoles,
   deriveMemberActions,
   mutationSucceededAfterReload,
   destructiveActionConfirmation,
+  normalizeFeatureCodes,
+  toggleFeature,
 } from '../lib/users-authz.js';
 
 test('sudo puede asignar los cuatro roles', () => {
@@ -39,7 +42,48 @@ test('ningún administrador puede editarse a sí mismo', () => {
     canDisableMembership: false,
     canSetAccountActive: false,
     canSetSudo: false,
+    canSetFeatures: false,
   });
+});
+
+test('sudo y group_admin pueden editar funcionalidades ajenas recibidas por su scope', () => {
+  assert.equal(deriveMemberActions(true, 'actor', 'other', 'active', ['patient'], true).canSetFeatures, true);
+  assert.equal(deriveMemberActions(false, 'actor', 'other', 'pending', ['patient'], null).canSetFeatures, true);
+  assert.equal(deriveMemberActions(false, 'actor', 'actor', 'active', ['patient'], true).canSetFeatures, false);
+});
+
+test('las funcionalidades RPC se validan fail closed', () => {
+  assert.deepEqual(normalizeFeatureCodes(['rate_recipes', 'send_report']), ['rate_recipes', 'send_report']);
+  assert.deepEqual(
+    normalizeFeatureCodes(['access_settings', 'change_theme']),
+    ['access_settings', 'change_theme'],
+  );
+  assert.deepEqual(normalizeFeatureCodes(['rate_recipes', 'unknown']), []);
+  assert.deepEqual(normalizeFeatureCodes(null), []);
+});
+
+test('la selección de funcionalidades es independiente y permite quedar vacía', () => {
+  assert.deepEqual(toggleFeature(['rate_recipes'], 'send_report'), ['rate_recipes', 'send_report']);
+  assert.deepEqual(toggleFeature(['rate_recipes'], 'rate_recipes'), []);
+});
+
+test('un lock global impide solapar mutaciones distintas', async () => {
+  const lock = createMutationLock();
+  const started = [];
+  async function mutate(name) {
+    if (!lock.tryAcquire()) return false;
+    try {
+      started.push(name);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return true;
+    } finally {
+      lock.release();
+    }
+  }
+  const first = mutate('roles');
+  assert.equal(await mutate('sudo'), false);
+  assert.equal(await first, true);
+  assert.deepEqual(started, ['roles']);
 });
 
 test('una mutación no se considera exitosa si falla la recarga', () => {

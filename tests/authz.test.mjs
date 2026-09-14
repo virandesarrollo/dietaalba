@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveCapabilities } from '../lib/authz.js';
+import { deriveCapabilities, deriveAvailableViews } from '../lib/authz.js';
 
 test('patient no abre administración', () => {
   assert.deepEqual(deriveCapabilities(false, ['patient']), {
@@ -60,4 +60,20 @@ test('sudo solo amplía la gestión de identidades', () => {
     canManageGroupUsers: false,
     canManageAllUsers: true,
   });
+});
+
+test('las vistas disponibles se derivan de permisos y siempre incluyen mi dieta', () => {
+  assert.deepEqual(deriveAvailableViews(deriveCapabilities(false, ['patient'])), ['patient']);
+  assert.deepEqual(deriveAvailableViews(deriveCapabilities(false, ['self_manager'])), ['patient', 'admin']);
+  assert.deepEqual(deriveAvailableViews(deriveCapabilities(false, ['group_admin'])), ['patient', 'users']);
+  assert.deepEqual(
+    deriveAvailableViews(deriveCapabilities(true, ['nutritionist'])),
+    ['patient', 'admin', 'users'],
+  );
+});
+
+test('ajustes solo aparece con acceso a ajustes', () => {
+  const roles = deriveCapabilities(false, ['patient']);
+  assert.deepEqual(deriveAvailableViews(roles, { canAccessSettings: false }), ['patient']);
+  assert.deepEqual(deriveAvailableViews(roles, { canAccessSettings: true }), ['patient', 'settings']);
 });

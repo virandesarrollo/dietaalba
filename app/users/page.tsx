@@ -36,6 +36,8 @@ const ALL_ROLES: { code: RoleCode; label: string }[] = [
 const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'rate_recipes', label: 'Valorar recetas' },
   { code: 'send_report', label: 'Enviar informe' },
+  { code: 'access_settings', label: 'Acceso a ajustes' },
+  { code: 'change_theme', label: 'Cambiar tema' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
@@ -237,10 +239,10 @@ export default function UsersPage() {
     }
   }
 
-  if (loading) return <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] text-sm text-slate-500">Cargando gestión de usuarios…</main>;
+  if (loading) return <main className="theme-page flex min-h-screen items-center justify-center text-sm text-slate-500">Cargando gestión de usuarios…</main>;
 
   return (
-    <main className="min-h-screen bg-[#FAF7F2] px-4 py-7 text-slate-700 sm:px-8">
+    <main className="theme-page min-h-screen px-4 py-7 text-slate-700 sm:px-8">
       <div className="mx-auto max-w-6xl">
         <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-sm font-semibold text-rose-400">Administración</p><h1 className="text-3xl font-bold text-slate-800">Usuarios y permisos</h1></div>

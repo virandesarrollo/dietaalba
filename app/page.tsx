@@ -842,7 +842,7 @@ export default function Home() {
 
   if (loadingSession || (session && loadingFeatures)) {
     return (
-      <main className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">
+      <main className="theme-page min-h-screen flex items-center justify-center">
         <div className="animate-pulse text-pink-400 font-medium">Cargando...</div>
       </main>
     );
@@ -850,7 +850,7 @@ export default function Home() {
 
   if (!session) {
     return (
-      <main className="min-h-screen bg-[#FAF7F2] flex items-center justify-center p-6 text-slate-700 font-sans">
+      <main className="theme-page min-h-screen flex items-center justify-center p-6 text-slate-700 font-sans">
         <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-xl shadow-pink-100/50 border border-pink-50 flex flex-col items-center text-center">
           <div className="w-16 h-16 bg-pink-50 rounded-full flex items-center justify-center mb-6">
             <Sparkles className="text-pink-400" size={32} />
@@ -876,7 +876,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#FAF7F2] text-slate-700 pb-28 max-w-md mx-auto relative font-sans">
+    <main className="theme-page min-h-screen text-slate-700 pb-28 max-w-md mx-auto relative font-sans">
       {featureError && (
         <p className="px-5 pt-3 text-center text-xs text-rose-500" role="alert">{featureError}</p>
       )}

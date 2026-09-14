@@ -317,7 +317,7 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] text-sm text-slate-500">
+      <main className="theme-page flex min-h-screen items-center justify-center text-sm text-slate-500">
         <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 shadow-sm">
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-rose-200 border-t-rose-500" />
           Cargando panel de administración...
@@ -328,7 +328,7 @@ export default function AdminPage() {
 
   if (accessError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] p-6 text-slate-700">
+      <main className="theme-page flex min-h-screen items-center justify-center p-6 text-slate-700">
         <div className="w-full max-w-lg rounded-3xl border border-red-100 bg-white p-7 shadow-sm">
           <h1 className="text-xl font-bold text-slate-800">No se pudo abrir el panel</h1>
           <p className="mt-3 text-sm leading-6 text-red-600">{accessError}</p>
@@ -341,7 +341,7 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#FAF7F2] text-slate-700 lg:flex">
+    <main className="theme-page min-h-screen text-slate-700 lg:flex">
       <aside className="border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:inset-y-0 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
         <div className="flex h-full flex-col">
           <div className="mb-7">

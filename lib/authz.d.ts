@@ -17,6 +17,9 @@ export function deriveCapabilities(
   roles: readonly RoleCode[],
 ): Capabilities;
 
-export type AppView = 'patient' | 'admin' | 'users';
+export type AppView = 'patient' | 'admin' | 'users' | 'settings';
 
-export function deriveAvailableViews(capabilities: Capabilities): AppView[];
+export function deriveAvailableViews(
+  capabilities: Capabilities,
+  featureCapabilities?: { canAccessSettings?: boolean },
+): AppView[];
