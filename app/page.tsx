@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { ViewNavigation } from '@/components/ViewNavigation';
 import {
   createLatestRequestGuard,
   createMutationLock,
@@ -915,6 +916,10 @@ export default function Home() {
               {session?.user?.email?.charAt(0).toUpperCase() || 'A'}
             </div>
           </div>
+        </div>
+
+        <div className="mb-4">
+          <ViewNavigation current="patient" />
         </div>
 
         {currentTab === 'plan' ? (

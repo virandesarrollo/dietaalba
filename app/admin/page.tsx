@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ViewNavigation } from '@/components/ViewNavigation';
 import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
 
@@ -389,13 +390,7 @@ export default function AdminPage() {
           </section>
 
           <nav className="mt-6 space-y-2 border-t border-slate-100 pt-5">
-            <button
-              type="button"
-              onClick={() => router.push('/')}
-              className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <ArrowLeft size={17} /> Vista del paciente
-            </button>
+            <ViewNavigation current="admin" vertical />
             <button
               type="button"
               onClick={() => void logout()}

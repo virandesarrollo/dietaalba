@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
+import { ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
 import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock, type FeatureCode } from '@/lib/feature-permissions.js';
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
+import { ViewNavigation } from '@/components/ViewNavigation';
 
 type Profile = { id: string; email: string; full_name: string | null; is_sudo: boolean };
 type Membership = { id: string };
@@ -243,7 +244,7 @@ export default function UsersPage() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-sm font-semibold text-rose-400">Administración</p><h1 className="text-3xl font-bold text-slate-800">Usuarios y permisos</h1></div>
-          <button type="button" onClick={() => router.push('/')} className="flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold shadow-sm"><ArrowLeft size={17} /> Volver</button>
+          <ViewNavigation current="users" />
         </header>
 
         {message && <p role="status" className={`mb-5 rounded-2xl border p-4 text-sm ${message.kind === 'error' ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>{message.text}</p>}

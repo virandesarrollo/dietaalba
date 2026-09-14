@@ -16,3 +16,7 @@ export function deriveCapabilities(
   isSudo: boolean,
   roles: readonly RoleCode[],
 ): Capabilities;
+
+export type AppView = 'patient' | 'admin' | 'users';
+
+export function deriveAvailableViews(capabilities: Capabilities): AppView[];
