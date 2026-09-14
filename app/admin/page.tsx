@@ -7,6 +7,7 @@ import {
   Calendar,
   CheckCircle,
   ChevronRight,
+  FileUp,
   LogOut,
   Save,
   Users,
@@ -15,6 +16,7 @@ import { supabase } from '@/lib/supabase';
 import { ViewNavigation } from '@/components/ViewNavigation';
 import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
+import { DietImportWizard } from '@/components/DietImportWizard';
 
 type Profile = {
   id: string;
@@ -84,6 +86,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRefreshKey, setImportRefreshKey] = useState(0);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const selectionRef = useRef({ patientId: selectedPatientId, date: selectedDate });
@@ -263,7 +267,7 @@ export default function AdminPage() {
     return () => {
       active = false;
     };
-  }, [selectedDate, selectedPatientId]);
+  }, [importRefreshKey, selectedDate, selectedPatientId]);
 
   useEffect(() => {
     if (!message || message.type !== 'success') return;
@@ -281,7 +285,7 @@ export default function AdminPage() {
   }
 
   async function savePlan() {
-    if (!selectedPatientId) return;
+    if (!selectedPatientId || importOpen) return;
 
     const patientSnapshot = selectedPatientId;
     const dateSnapshot = selectedDate;
@@ -341,7 +345,8 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="theme-page min-h-screen text-slate-700 lg:flex">
+    <main className="theme-page min-h-screen text-slate-700">
+      <div className="lg:flex" inert={importOpen ? true : undefined} aria-hidden={importOpen}>
       <aside className="border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:inset-y-0 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
         <div className="flex h-full flex-col">
           <div className="mb-7">
@@ -366,7 +371,7 @@ export default function AdminPage() {
                     key={profile.id}
                     type="button"
                     onClick={() => setSelectedPatientId(profile.id)}
-                    disabled={saving}
+                    disabled={saving || importOpen}
                     className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
                       selected
                         ? 'bg-slate-800 text-white shadow-sm'
@@ -394,6 +399,7 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={() => void logout()}
+              disabled={importOpen}
               className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-rose-500 hover:bg-rose-50"
             >
               <LogOut size={17} /> Cerrar sesión
@@ -418,7 +424,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día anterior"
                 onClick={() => setSelectedDate((date) => moveDate(date, -1))}
-                disabled={saving}
+                disabled={saving || importOpen}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ArrowLeft size={18} />
@@ -429,14 +435,14 @@ export default function AdminPage() {
                   type="date"
                   value={selectedDate}
                   onChange={(event) => setSelectedDate(event.target.value)}
-                  disabled={saving || !selectedPatientId}
+                  disabled={saving || !selectedPatientId || importOpen}
                   className="rounded-2xl border-0 bg-slate-50 py-2.5 pl-10 pr-3 text-sm font-medium text-slate-700 outline-none ring-rose-200 focus:ring-2"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedDate(localDateString())}
-                disabled={saving}
+                disabled={saving || importOpen}
                 className="rounded-2xl px-4 py-2.5 text-sm font-semibold text-rose-500 hover:bg-rose-50"
               >
                 Hoy
@@ -445,7 +451,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día siguiente"
                 onClick={() => setSelectedDate((date) => moveDate(date, 1))}
-                disabled={saving}
+                disabled={saving || importOpen}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ChevronRight size={18} />
@@ -488,7 +494,7 @@ export default function AdminPage() {
                     value={drafts[key].title}
                     onChange={(event) => updateDraft(key, 'title', event.target.value)}
                     placeholder={`Nombre del ${label.toLowerCase()}`}
-                    disabled={!selectedPatientId || saving}
+                    disabled={!selectedPatientId || saving || importOpen}
                     className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
                 </label>
@@ -499,7 +505,7 @@ export default function AdminPage() {
                     value={drafts[key].ingredients}
                     onChange={(event) => updateDraft(key, 'ingredients', event.target.value)}
                     placeholder="Cantidades, preparación y observaciones…"
-                    disabled={!selectedPatientId || saving}
+                    disabled={!selectedPatientId || saving || importOpen}
                     rows={5}
                     className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
@@ -508,11 +514,19 @@ export default function AdminPage() {
             ))}
           </div>
 
-          <div className="sticky bottom-5 mt-7 flex justify-end">
+          <div className="sticky bottom-5 mt-7 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              disabled={!selectedPatientId || saving || loadingPlan || importOpen}
+              className="flex items-center gap-2 rounded-2xl bg-rose-100 px-6 py-3.5 text-sm font-bold text-rose-700 shadow-lg shadow-slate-200 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileUp size={18} /> Importar dieta
+            </button>
             <button
               type="button"
               onClick={() => void savePlan()}
-              disabled={!selectedPatientId || saving || loadingPlan}
+              disabled={!selectedPatientId || saving || loadingPlan || importOpen}
               className="flex items-center gap-2 rounded-2xl bg-slate-800 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-300 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save size={18} />
@@ -521,6 +535,18 @@ export default function AdminPage() {
           </div>
         </div>
       </section>
+      </div>
+      {importOpen && <DietImportWizard
+        open={importOpen}
+        patientId={selectedPatientId}
+        patientName={selectedPatient?.full_name || selectedPatient?.email || ''}
+        onClose={() => setImportOpen(false)}
+        onImported={(startDate) => {
+          setSelectedDate(startDate);
+          setImportRefreshKey((key) => key + 1);
+          setMessage({ type: 'success', text: 'Dieta importada correctamente.' });
+        }}
+      />}
     </main>
   );
 }

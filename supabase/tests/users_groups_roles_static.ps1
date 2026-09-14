@@ -6,6 +6,10 @@ $featureMigration = if (Test-Path -LiteralPath $featureMigrationPath) {
 } else {
   ''
 }
+$dietMigrationPath = Join-Path $PSScriptRoot '..\migrations\202609140004_diet_import.sql'
+$dietMigration = if (Test-Path -LiteralPath $dietMigrationPath) { Get-Content -Raw -LiteralPath $dietMigrationPath } else { '' }
+$dietRlsTestPath = Join-Path $PSScriptRoot 'diet_import_rls.sql'
+$dietRlsTest = if (Test-Path -LiteralPath $dietRlsTestPath) { Get-Content -Raw -LiteralPath $dietRlsTestPath } else { '' }
 $rlsTest = Get-Content -Raw (Join-Path $PSScriptRoot 'users_groups_roles_rls.sql')
 
 $required = @(
@@ -92,6 +96,47 @@ if ($featureRlsTest -notmatch '(?is)^\s*begin;.+select plan\(40\).+select \* fro
 if ($featureRlsTest -notmatch "(?is)create function pg_temp\.reject_atomic_feature_insert\(\).+invited_email = 'atomic-fail@example\.test'.+create trigger feature_atomic_failure.+before insert on public\.membership_features.+invite_group_member_with_features\(.+?'atomic-fail@example\.test'.+?array\['patient'\].+?array\['rate_recipes'\].+drop trigger feature_atomic_failure on public\.membership_features.+drop function pg_temp\.reject_atomic_feature_insert\(\)") { throw 'La prueba atómica no falla después de crear membresía y roles o no limpia el trigger' }
 foreach ($coverage in @('without features cannot read own reviews', 'rate_recipes allows own CRUD', 'rate_recipes cannot insert another review', 'rate_recipes cannot update another review', 'rate_recipes cannot delete another review', 'send_report only allows own reads', 'send_report cannot delete reviews', 'roles do not imply features', 'sudo without features cannot read recipe reviews', 'group_admin cannot assign outside its group', 'group_admin cannot edit own features', 'set_member_features records assigning actor', 'null member features are rejected', 'unknown member features are rejected', 'invitation rejects null features', 'invitation rejects duplicate features', 'invitation rejects unknown features', 'invitation rejects invalid roles', 'invitation rejects null roles', 'invitation rejects empty roles', 'feature insert failure aborts invitation atomically', 'failed invitation leaves no membership', 'failed invitation leaves no user roles', 'failed invitation leaves no membership features', 'failed invitation leaves no audit entry', 'invitation stores roles and features atomically', 'invitation features record assigning actor')) {
   if ($featureRlsTest -notmatch [regex]::Escape($coverage)) { throw "Falta cobertura de funcionalidades: $coverage" }
+}
+
+if ($dietMigration -notmatch '(?is)^\s*begin\s*;.+commit\s*;\s*$') { throw 'La migración de importación no es transaccional' }
+if ($dietMigration -notmatch '(?is)create table public\.diet_import_confirmations.+enable row level security') { throw 'Falta la tabla efímera con RLS' }
+if ($dietMigration -match '(?is)create policy.+diet_import_confirmations') { throw 'La tabla de confirmaciones no debe tener policies' }
+foreach ($rpc in @('prepare_diet_import', 'apply_diet_import')) {
+  if ($dietMigration -notmatch "(?is)create or replace function public\.$rpc\b.+?security definer\s+set search_path = ''") { throw "$rpc no está endurecida" }
+}
+if ($dietMigration -notmatch "(?is)create or replace function public\.can_import_diet\(p_user_id uuid\).+security definer\s+set search_path = ''.+role_code = 'self_manager'.+p_user_id = \(select auth\.uid\(\)\).+actor_role\.role_code = 'nutritionist'.+target_role\.role_code = 'patient'.+target_profile\.is_active.+revoke all on function public\.can_import_diet\(uuid\) from public") { throw 'Falta autorización específica de importación' }
+if ($dietMigration -match '(?is)(prepare_diet_import|apply_diet_import).+can_manage_plan') { throw 'Las RPC de importación reutilizan indebidamente can_manage_plan' }
+if ($dietMigration -notmatch '(?is)validate_diet_import_plan\(weekly_plan jsonb\).+prepare_diet_import\(\s*target_user uuid,\s*start_date date,\s*weekly_plan jsonb\s*\).+current_user_is_active\(\).+can_import_diet\(target_user\).+start_date < public\.diet_import_current_date\(\).+validate_diet_import_plan\(weekly_plan\).+extensions\.digest\(.+convert_to\(weekly_plan::text.+sha256.+interval ''3 months''.+interval ''1 day''.+interval ''15 minutes''') { throw 'prepare_diet_import no valida autorización, plan, hash o vigencia' }
+foreach ($pattern in @(
+  '(?is)apply_diet_import.+for update.+used_at is not null.+expires_at <= pg_catalog\.now\(\).+confirmed is distinct from true.+validate_diet_import_plan\(weekly_plan\).+extensions\.digest\(.+convert_to\(weekly_plan::text.+v_payload_hash is distinct from v_confirmation\.plan_hash.+v_payload_hash is distinct from lower\(plan_hash\).+pg_advisory_xact_lock.+can_import_diet',
+  '(?is)delete from public\.daily_plan.+user_id = v_confirmation\.target_user.+date >= v_confirmation\.start_date',
+  '(?is)insert into public\.daily_plan \(user_id, date, meal_type, title, ingredients, recipe_url, is_completed\).+generate_series.+date_part\(''isodow'',\s*calendar\.day\)',
+  '(?is)nullif\(meal\.value ->> ''recipe_url'', ''''\), false.+used_at = pg_catalog\.now\(\)'
+)) {
+  if ($dietMigration -notmatch $pattern) { throw 'apply_diet_import no cumple sustitución atómica' }
+}
+if ($dietMigration -notmatch '(?is)revoke all on function public\.prepare_diet_import\(uuid, date, jsonb\) from public.+grant execute on function public\.prepare_diet_import\(uuid, date, jsonb\) to authenticated') { throw 'Permisos incorrectos de prepare_diet_import' }
+if ($dietMigration -notmatch '(?is)revoke all on function public\.apply_diet_import\(uuid, text, jsonb, boolean\) from public.+grant execute on function public\.apply_diet_import\(uuid, text, jsonb, boolean\) to authenticated') { throw 'Permisos incorrectos de apply_diet_import' }
+if ($dietMigration -match '(?i)histor(?:y|ico|ical)') { throw 'La migración de dieta referencia tablas históricas' }
+if ($dietMigration -notmatch [regex]::Escape("^https?://[[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?(\.[[:alnum:]]([[:alnum:]-]{0,61}[[:alnum:]])?)*([/?#][^[:space:][:cntrl:]]*)?$")) { throw 'La validación de recipe_url no exige una URL http/https con host válido y rechaza puertos no validados' }
+if ($dietMigration -notmatch "(?is)create or replace function public\.diet_import_current_date\(\).+Europe/Madrid.+revoke all on function public\.diet_import_current_date\(\) from public.+grant execute on function public\.diet_import_current_date\(\) to authenticated") { throw 'Falta fecha local Madrid endurecida' }
+if ($dietMigration -notmatch "(?is)prepare_diet_import.+pg_advisory_xact_lock\(7375646, 1\).+pg_advisory_xact_lock\(pg_catalog\.hashtextextended\(target_user::text, 0\)\).+current_user_is_active\(\).+can_import_diet\(target_user\)") { throw 'prepare_diet_import no respeta orden global/target antes de autorización' }
+if ($dietMigration -notmatch "(?is)apply_diet_import.+pg_advisory_xact_lock\(7375646, 1\).+pg_advisory_xact_lock\(pg_catalog\.hashtextextended\(v_confirmation\.target_user::text, 0\)\).+v_confirmation\.start_date < public\.diet_import_current_date\(\).+current_user_is_active\(\).+can_import_diet\(v_confirmation\.target_user\).+lock table public\.daily_plan in share row exclusive mode.+count\(\*\).+v_confirmation\.delete_count.+delete from public\.daily_plan") { throw 'apply_diet_import no respeta orden global/target/table y revalidación' }
+if ($dietMigration -match '(?is)(prepare_diet_import|apply_diet_import).+start_date < current_date') { throw 'Las RPC de importación usan current_date de sesión en lugar de Europe/Madrid' }
+if ($dietMigration -match 'pg_catalog\.extract\s*\(') { throw 'EXTRACT no admite calificación de esquema en PostgreSQL' }
+foreach ($coverage in @('nutritionist imports for own patient', 'self_manager imports own plan', 'past start date is rejected', 'foreign patient is rejected', 'sudo without functional role is rejected', 'calendar aligns a Wednesday', 'future rows beyond replacement window are deleted', 'rows before start are preserved', 'same hash with different content is rejected', 'confirmed false is rejected', 'permission revoked after prepare is rejected', 'different actor is rejected', 'extra day is rejected', 'missing day is rejected', 'duplicate meal is rejected', 'wrong meal is rejected', 'non-text field is rejected', 'long title is rejected', 'long ingredients are rejected', 'invalid URL is rejected', 'month end uses three natural months', 'leap year month end is correct', 'token hash mismatch is rejected', 'expired token is rejected', 'used token is rejected', 'insert failure rolls back replacement', 'historical sentinel remains byte-identical')) {
+  if ($dietRlsTest -notmatch [regex]::Escape($coverage)) { throw "Falta cobertura de importación: $coverage" }
+}
+foreach ($coverage in @('empty URL host is rejected', 'URL containing spaces is rejected', 'URL containing control characters is rejected', 'bare http URL is rejected', 'malformed DNS host is rejected', 'http URL with DNS host and path is accepted', 'https Instagram URL with path and query is accepted')) {
+  if ($dietRlsTest -notmatch [regex]::Escape($coverage)) { throw "Falta cobertura URL: $coverage" }
+}
+if ($dietRlsTest -notmatch '(?is)grant all on table diet_tokens, diet_baseline, diet_dates, weekly_plan, diet_history, diet_history_before to authenticated.+set local role authenticated') { throw 'Las tablas temporales pgTAP no conceden acceso antes de SET ROLE' }
+if ($dietRlsTest -match '(?<!diet_import_)current_date') { throw 'pgTAP usa current_date de sesión en lugar del helper Madrid' }
+foreach ($coverage in @('Madrid date is used by prepare', 'import locks daily plan against concurrent writers', 'changed delete count requires a new confirmation', 'URL port is rejected unless validated')) {
+  if ($dietRlsTest -notmatch [regex]::Escape($coverage)) { throw "Falta cobertura de concurrencia/fecha: $coverage" }
+}
+foreach ($coverage in @('ordinary patient cannot import own diet', 'self_manager cannot import another diet')) {
+  if ($dietRlsTest -notmatch [regex]::Escape($coverage)) { throw "Falta cobertura de autorización de importación: $coverage" }
 }
 
 Write-Output 'Static migration checks passed'
