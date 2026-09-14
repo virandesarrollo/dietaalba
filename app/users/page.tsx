@@ -1,0 +1,217 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
+import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
+import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload } from '@/lib/users-authz.js';
+import { supabase } from '@/lib/supabase';
+
+type Profile = { id: string; email: string; full_name: string | null; is_sudo: boolean };
+type Membership = { id: string };
+type RoleRow = { role_code: RoleCode };
+type Group = { id: string; name: string; slug: string };
+type Member = {
+  membership_id: string;
+  user_id: string | null;
+  email: string;
+  full_name: string | null;
+  status: 'pending' | 'active' | 'disabled';
+  roles: RoleCode[];
+  group_id: string;
+  group_name: string;
+  is_sudo: boolean | null;
+  is_active: boolean | null;
+};
+
+const ALL_ROLES: { code: RoleCode; label: string }[] = [
+  { code: 'patient', label: 'Paciente' },
+  { code: 'self_manager', label: 'Autogestión' },
+  { code: 'nutritionist', label: 'Nutricionista' },
+  { code: 'group_admin', label: 'Administrador de grupo' },
+];
+function safeError(error: { code?: string } | null, fallback: string) {
+  return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
+}
+
+export default function UsersPage() {
+  const router = useRouter();
+  const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
+  const [isSudo, setIsSudo] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [email, setEmail] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [inviteRoles, setInviteRoles] = useState<RoleCode[]>(['patient']);
+  const [draftRoles, setDraftRoles] = useState<Record<string, RoleCode[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+
+  const loadScopedData = useCallback(async () => {
+    const [groupsResult, membersResult] = await Promise.all([
+      supabase.rpc('list_manageable_groups'),
+      supabase.rpc('list_manageable_members'),
+    ]);
+    if (groupsResult.error || membersResult.error) {
+      setMessage({ kind: 'error', text: safeError(groupsResult.error ?? membersResult.error, 'No se pudieron cargar los usuarios.') });
+      return false;
+    }
+    const nextGroups = (groupsResult.data ?? []) as Group[];
+    const nextMembers = (membersResult.data ?? []) as Member[];
+    setGroups(nextGroups);
+    setMembers(nextMembers);
+    setGroupId((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id ?? ''));
+    setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.roles])));
+    return true;
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function initialize() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!session) { router.replace('/'); return; }
+      const [profileResult, membershipResult] = await Promise.all([
+        supabase.from('profiles').select('id, email, full_name, is_sudo').eq('id', session.user.id).maybeSingle(),
+        supabase.from('group_memberships').select('id').eq('user_id', session.user.id).eq('status', 'active').maybeSingle(),
+      ]);
+      const profile = profileResult.data as Profile | null;
+      const membership = membershipResult.data as Membership | null;
+      if (!active) return;
+      if (profileResult.error || membershipResult.error || !profile || (!profile.is_sudo && !membership)) {
+        setMessage({ kind: 'error', text: 'No se pudo verificar el acceso.' }); setLoading(false); return;
+      }
+      const rolesResult = membership
+        ? await supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
+        : { data: [] as RoleRow[], error: null };
+      if (!active) return;
+      if (rolesResult.error) { setMessage({ kind: 'error', text: 'No se pudo verificar el acceso.' }); setLoading(false); return; }
+      const roles = (rolesResult.data ?? []).map((row) => (row as RoleRow).role_code);
+      const capabilities = deriveCapabilities(profile.is_sudo, roles);
+      if (!(capabilities.canManageAllUsers || capabilities.canManageGroupUsers)) { router.replace('/'); return; }
+      setCurrentProfile(profile);
+      setIsSudo(capabilities.canManageAllUsers);
+      await loadScopedData();
+      if (active) setLoading(false);
+    }
+    void initialize();
+    return () => { active = false; };
+  }, [loadScopedData, router]);
+
+  const allowedCodes = assignableRoles(isSudo);
+  const allowedRoles = ALL_ROLES.filter(({ code }) => allowedCodes.includes(code));
+
+  function toggleRole(current: RoleCode[], role: RoleCode) {
+    return current.includes(role) ? current.filter((value) => value !== role) : [...current, role];
+  }
+
+  async function invite() {
+    if (!email.trim() || !groupId || inviteRoles.length === 0) return;
+    setSavingKey('invite'); setMessage(null);
+    const { error } = await supabase.rpc('invite_group_member', { p_group_id: groupId, p_email: email, p_roles: inviteRoles });
+    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo crear la invitación.') });
+    else {
+      setEmail(''); setInviteRoles(['patient']);
+      const reloaded = await loadScopedData();
+      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Invitación creada.' });
+    }
+    setSavingKey(null);
+  }
+
+  async function saveRoles(member: Member) {
+    const allowedCodes = new Set(allowedRoles.map(({ code }) => code));
+    const roles = (draftRoles[member.membership_id] ?? []).filter((role) => allowedCodes.has(role));
+    if (roles.length === 0) return;
+    setSavingKey(member.membership_id); setMessage(null);
+    const { error } = await supabase.rpc('set_member_roles', { p_membership_id: member.membership_id, p_roles: roles });
+    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar los roles.') });
+    else {
+      const reloaded = await loadScopedData();
+      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Roles actualizados.' });
+    }
+    setSavingKey(null);
+  }
+
+  async function disableMembership(member: Member) {
+    if (!window.confirm(destructiveActionConfirmation('membership', member.full_name, member.email, member.group_name))) return;
+    setSavingKey(member.membership_id); setMessage(null);
+    const { error } = await supabase.rpc('disable_membership', { p_membership_id: member.membership_id });
+    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo desactivar la membresía.') });
+    else {
+      const reloaded = await loadScopedData();
+      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Membresía desactivada.' });
+    }
+    setSavingKey(null);
+  }
+
+  async function setAccountActive(member: Member, active: boolean) {
+    if (!member.user_id) return;
+    if (!active) {
+      if (!window.confirm(destructiveActionConfirmation('account', member.full_name, member.email, member.group_name))) return;
+    }
+    setSavingKey(member.membership_id); setMessage(null);
+    const { error } = await supabase.rpc('set_user_active', { p_user_id: member.user_id, p_is_active: active });
+    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el estado de la cuenta.') });
+    else {
+      const reloaded = await loadScopedData();
+      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: active ? 'Cuenta activada.' : 'Cuenta desactivada.' });
+    }
+    setSavingKey(null);
+  }
+
+  async function setUserSudo(member: Member, sudo: boolean) {
+    if (!member.user_id) return;
+    const action = sudo ? 'sudo-grant' : 'sudo-revoke';
+    if (!window.confirm(destructiveActionConfirmation(action, member.full_name, member.email, member.group_name))) return;
+    setSavingKey(member.membership_id); setMessage(null);
+    const { error } = await supabase.rpc('set_user_sudo', { target_user: member.user_id, sudo });
+    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el acceso sudo.') });
+    else {
+      const reloaded = await loadScopedData();
+      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: sudo ? 'Acceso sudo concedido.' : 'Acceso sudo retirado.' });
+    }
+    setSavingKey(null);
+  }
+
+  if (loading) return <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] text-sm text-slate-500">Cargando gestión de usuarios…</main>;
+
+  return (
+    <main className="min-h-screen bg-[#FAF7F2] px-4 py-7 text-slate-700 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
+          <div><p className="text-sm font-semibold text-rose-400">Administración</p><h1 className="text-3xl font-bold text-slate-800">Usuarios y permisos</h1></div>
+          <button type="button" onClick={() => router.push('/')} className="flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold shadow-sm"><ArrowLeft size={17} /> Volver</button>
+        </header>
+
+        {message && <p role="status" className={`mb-5 rounded-2xl border p-4 text-sm ${message.kind === 'error' ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>{message.text}</p>}
+
+        {currentProfile && groups.length > 0 && <section className="mb-7 rounded-3xl bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-5 flex items-center gap-2"><UserPlus className="text-rose-400" size={20} /><h2 className="font-bold text-slate-800">Invitar usuario</h2></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-semibold">Correo<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={savingKey !== null} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-3 text-sm font-normal outline-none ring-rose-200 focus:ring-2" /></label>
+            <label className="text-xs font-semibold">Grupo<select value={groupId} onChange={(event) => setGroupId(event.target.value)} disabled={!isSudo || savingKey !== null} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-3 text-sm font-normal">{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={inviteRoles.includes(code)} onChange={() => setInviteRoles((roles) => toggleRole(roles, code))} disabled={savingKey !== null} />{label}</label>)}</div>
+          <button type="button" onClick={() => void invite()} disabled={!email.trim() || !groupId || inviteRoles.length === 0 || savingKey !== null} className="mt-5 rounded-2xl bg-slate-800 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{savingKey === 'invite' ? 'Invitando…' : 'Crear invitación'}</button>
+        </section>}
+
+        <section><div className="mb-4 flex items-center gap-2"><Users className="text-rose-400" size={20} /><h2 className="font-bold text-slate-800">Miembros administrables</h2></div>
+          <div className="grid gap-4 lg:grid-cols-2">{members.map((member) => {
+            const actions = deriveMemberActions(isSudo, currentProfile?.id ?? '', member.user_id, member.status, member.roles, member.is_active);
+            const isSelf = member.user_id === currentProfile?.id;
+            const busy = savingKey === member.membership_id;
+            const roles = draftRoles[member.membership_id] ?? [];
+            return <article key={member.membership_id} className="rounded-3xl border border-rose-50 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate font-bold text-slate-800">{member.full_name || 'Invitación pendiente'}</h3><p className="truncate text-xs text-slate-500">{member.email}</p><p className="mt-1 text-xs text-rose-400">{member.group_name} · {member.status}{isSudo && member.is_active !== null ? ` · cuenta ${member.is_active ? 'activa' : 'inactiva'}` : ''}{isSudo && member.is_sudo ? ' · sudo' : ''}</p></div><ShieldCheck className="shrink-0 text-rose-300" size={20} /></div>
+              <div className="mt-4 flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={roles.includes(code)} onChange={() => setDraftRoles((all) => ({ ...all, [member.membership_id]: toggleRole(roles, code) }))} disabled={!actions.canEditRoles || busy} />{label}</label>)}</div>
+              <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void saveRoles(member)} disabled={!actions.canEditRoles || busy || roles.length === 0} className="rounded-xl bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar roles'}</button><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex items-center gap-1 rounded-xl bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="rounded-xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="rounded-xl bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div>
+              {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
+            </article>;
+          })}</div>
+          {members.length === 0 && <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 shadow-sm">No hay miembros administrables.</p>}
+        </section>
+      </div>
+    </main>
+  );
+}

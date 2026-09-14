@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -12,13 +12,19 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
+import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
 
 type Profile = {
   id: string;
   email: string;
   full_name: string | null;
-  role: 'nutritionist' | 'patient';
+  is_sudo?: boolean;
 };
+
+type Membership = { id: string };
+type UserRole = { role_code: RoleCode };
+type ManageablePatient = Pick<Profile, 'id' | 'email' | 'full_name'>;
 
 type DailyPlanRow = {
   id: string;
@@ -69,7 +75,7 @@ function moveDate(value: string, days: number): string {
 
 export default function AdminPage() {
   const router = useRouter();
-  const [nutritionist, setNutritionist] = useState<Profile | null>(null);
+  const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [selectedDate, setSelectedDate] = useState(localDateString);
@@ -79,6 +85,11 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const selectionRef = useRef({ patientId: selectedPatientId, date: selectedDate });
+
+  useEffect(() => {
+    selectionRef.current = { patientId: selectedPatientId, date: selectedDate };
+  }, [selectedDate, selectedPatientId]);
 
   useEffect(() => {
     let active = true;
@@ -95,45 +106,98 @@ export default function AdminPage() {
         return;
       }
 
-      const { data: ownProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, role')
-        .eq('id', session.user.id)
-        .maybeSingle();
+      const [profileResult, membershipResult] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, email, full_name, is_sudo')
+          .eq('id', session.user.id)
+          .maybeSingle(),
+        supabase
+          .from('group_memberships')
+          .select('id')
+          .eq('user_id', session.user.id)
+          .eq('status', 'active')
+          .maybeSingle(),
+      ]);
 
-      if (profileError) {
+      const ownProfile = profileResult.data as Profile | null;
+      const membership = membershipResult.data as Membership | null;
+      const accessLookupError = profileResult.error ?? membershipResult.error;
+
+      if (accessLookupError) {
         if (!active) return;
         sessionInitialized = true;
-        setAccessError(`No se pudo verificar el perfil: ${profileError.message}`);
+        setAccessError(
+          accessLookupError.code === '42501'
+            ? 'No tienes permiso para consultar los datos de acceso.'
+            : 'No se pudo verificar el acceso. Inténtalo de nuevo en unos minutos.',
+        );
         setLoading(false);
         return;
       }
 
-      if (!ownProfile || ownProfile.role !== 'nutritionist') {
+      if (!ownProfile || !membership) {
         if (!active) return;
         sessionInitialized = true;
         router.push('/');
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, role')
-        .order('full_name', { ascending: true });
+      const { data: roleRows, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('role_code')
+        .eq('membership_id', membership.id);
+
+      if (!active) return;
+
+      if (rolesError) {
+        sessionInitialized = true;
+        setAccessError(
+          rolesError.code === '42501'
+            ? 'No tienes permiso para consultar los roles de acceso.'
+            : 'No se pudo verificar el acceso. Inténtalo de nuevo en unos minutos.',
+        );
+        setLoading(false);
+        return;
+      }
+
+      const roles = (roleRows ?? []).map((row) => (row as UserRole).role_code);
+      const capabilities = deriveCapabilities(Boolean(ownProfile.is_sudo), roles);
+
+      if (!capabilities.canOpenDietAdmin) {
+        sessionInitialized = true;
+        router.push('/');
+        return;
+      }
+
+      let availableProfiles: ManageablePatient[];
+      let patientsError: { code?: string } | null = null;
+      if (capabilities.canManageGroupPlans) {
+        const result = await supabase.rpc('list_manageable_patients');
+        availableProfiles = (result.data ?? []) as ManageablePatient[];
+        patientsError = result.error;
+      } else {
+        availableProfiles = [ownProfile];
+      }
 
       if (!active) return;
 
       sessionInitialized = true;
-      setNutritionist(ownProfile as Profile);
-      if (error) {
-        setMessage({ type: 'error', text: 'No se pudo cargar la lista de perfiles.' });
+      setCurrentProfile(ownProfile);
+      if (patientsError) {
+        setMessage({
+          type: 'error',
+          text:
+            patientsError.code === '42501'
+              ? 'No tienes permiso para consultar pacientes de este grupo.'
+              : 'No se pudo cargar la lista de pacientes. Inténtalo de nuevo.',
+        });
       } else {
-        const allProfiles = (data ?? []) as Profile[];
-        setProfiles(allProfiles);
+        setProfiles(availableProfiles);
         setSelectedPatientId(
-          allProfiles.some((profile) => profile.id === ownProfile.id)
+          availableProfiles.some((profile) => profile.id === ownProfile.id)
             ? ownProfile.id
-            : (allProfiles[0]?.id ?? ''),
+            : (availableProfiles[0]?.id ?? ''),
         );
       }
       setLoading(false);
@@ -218,43 +282,28 @@ export default function AdminPage() {
   async function savePlan() {
     if (!selectedPatientId) return;
 
+    const patientSnapshot = selectedPatientId;
+    const dateSnapshot = selectedDate;
     setSaving(true);
     setMessage(null);
 
-    const operations = MEALS.map(({ key }) => {
-      const draft = drafts[key];
-      const values = {
-        user_id: selectedPatientId,
-        date: selectedDate,
-        meal_type: key,
-        title: draft.title.trim(),
-        ingredients: draft.ingredients.trim(),
-        is_completed: draft.isCompleted,
-      };
-      const upsertValues: typeof values & { id?: string } = { ...values };
-      if (draft.id) upsertValues.id = draft.id;
-
-      return supabase
-        .from('daily_plan')
-        .upsert(upsertValues)
-        .select('id')
-        .single();
+    const { data, error } = await supabase.rpc('save_daily_plan', {
+      target_user: patientSnapshot,
+      target_date: dateSnapshot,
+      meals: buildMealPayload(
+        drafts,
+        MEALS.map(({ key }) => key),
+      ),
     });
 
-    const results = await Promise.all(operations);
-    const firstError = results.find((result) => result.error)?.error;
-
-    if (firstError) {
-      console.error('Error guardando el plan:', firstError);
+    if (error) {
+      console.error('Error guardando el plan:', error);
       setMessage({ type: 'error', text: 'No se pudo guardar el plan completo. Inténtalo de nuevo.' });
     } else {
-      setDrafts((current) => {
-        const next = { ...current };
-        MEALS.forEach(({ key }, index) => {
-          next[key] = { ...current[key], id: results[index].data?.id ?? current[key].id };
-        });
-        return next;
-      });
+      const selection = selectionRef.current;
+      if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
+        setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]));
+      }
       setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
     }
     setSaving(false);
@@ -298,15 +347,15 @@ export default function AdminPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">Panel profesional</p>
             <h1 className="mt-2 text-2xl font-bold text-slate-800">Dieta Alba - Admin</h1>
             <div className="mt-4 rounded-2xl bg-rose-50 p-4">
-              <p className="font-semibold text-slate-700">{nutritionist?.full_name || 'Nutricionista'}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">{nutritionist?.email}</p>
+              <p className="font-semibold text-slate-700">{currentProfile?.full_name || 'Usuario'}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{currentProfile?.email}</p>
             </div>
           </div>
 
           <section className="min-h-0 flex-1">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
               <Users size={17} className="text-rose-400" />
-              Perfiles
+              Pacientes
             </div>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-380px)]">
               {profiles.map((profile) => {
@@ -316,6 +365,7 @@ export default function AdminPage() {
                     key={profile.id}
                     type="button"
                     onClick={() => setSelectedPatientId(profile.id)}
+                    disabled={saving}
                     className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
                       selected
                         ? 'bg-slate-800 text-white shadow-sm'
@@ -373,6 +423,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día anterior"
                 onClick={() => setSelectedDate((date) => moveDate(date, -1))}
+                disabled={saving}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ArrowLeft size={18} />
@@ -383,12 +434,14 @@ export default function AdminPage() {
                   type="date"
                   value={selectedDate}
                   onChange={(event) => setSelectedDate(event.target.value)}
+                  disabled={saving || !selectedPatientId}
                   className="rounded-2xl border-0 bg-slate-50 py-2.5 pl-10 pr-3 text-sm font-medium text-slate-700 outline-none ring-rose-200 focus:ring-2"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedDate(localDateString())}
+                disabled={saving}
                 className="rounded-2xl px-4 py-2.5 text-sm font-semibold text-rose-500 hover:bg-rose-50"
               >
                 Hoy
@@ -397,6 +450,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día siguiente"
                 onClick={() => setSelectedDate((date) => moveDate(date, 1))}
+                disabled={saving}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ChevronRight size={18} />
@@ -439,7 +493,7 @@ export default function AdminPage() {
                     value={drafts[key].title}
                     onChange={(event) => updateDraft(key, 'title', event.target.value)}
                     placeholder={`Nombre del ${label.toLowerCase()}`}
-                    disabled={!selectedPatientId}
+                    disabled={!selectedPatientId || saving}
                     className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
                 </label>
@@ -450,7 +504,7 @@ export default function AdminPage() {
                     value={drafts[key].ingredients}
                     onChange={(event) => updateDraft(key, 'ingredients', event.target.value)}
                     placeholder="Cantidades, preparación y observaciones…"
-                    disabled={!selectedPatientId}
+                    disabled={!selectedPatientId || saving}
                     rows={5}
                     className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
