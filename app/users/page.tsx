@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
 import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
-import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload } from '@/lib/users-authz.js';
+import { createMutationLock, type FeatureCode } from '@/lib/feature-permissions.js';
+import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
 
 type Profile = { id: string; email: string; full_name: string | null; is_sudo: boolean };
@@ -22,6 +23,7 @@ type Member = {
   group_name: string;
   is_sudo: boolean | null;
   is_active: boolean | null;
+  features: FeatureCode[];
 };
 
 const ALL_ROLES: { code: RoleCode; label: string }[] = [
@@ -29,6 +31,10 @@ const ALL_ROLES: { code: RoleCode; label: string }[] = [
   { code: 'self_manager', label: 'Autogestión' },
   { code: 'nutritionist', label: 'Nutricionista' },
   { code: 'group_admin', label: 'Administrador de grupo' },
+];
+const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
+  { code: 'rate_recipes', label: 'Valorar recetas' },
+  { code: 'send_report', label: 'Enviar informe' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
@@ -43,10 +49,13 @@ export default function UsersPage() {
   const [email, setEmail] = useState('');
   const [groupId, setGroupId] = useState('');
   const [inviteRoles, setInviteRoles] = useState<RoleCode[]>(['patient']);
+  const [inviteFeatures, setInviteFeatures] = useState<FeatureCode[]>([]);
   const [draftRoles, setDraftRoles] = useState<Record<string, RoleCode[]>>({});
+  const [draftFeatures, setDraftFeatures] = useState<Record<string, FeatureCode[]>>({});
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  const mutationLockRef = useRef(createMutationLock());
 
   const loadScopedData = useCallback(async () => {
     const [groupsResult, membersResult] = await Promise.all([
@@ -58,11 +67,15 @@ export default function UsersPage() {
       return false;
     }
     const nextGroups = (groupsResult.data ?? []) as Group[];
-    const nextMembers = (membersResult.data ?? []) as Member[];
+    const nextMembers: Member[] = (membersResult.data ?? []).map((row: unknown) => {
+      const member = row as Omit<Member, 'features'> & { features?: string[] | null };
+      return { ...member, features: normalizeFeatureCodes(member.features) };
+    });
     setGroups(nextGroups);
     setMembers(nextMembers);
     setGroupId((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id ?? ''));
     setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.roles])));
+    setDraftFeatures(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.features])));
     return true;
   }, []);
 
@@ -108,41 +121,78 @@ export default function UsersPage() {
 
   async function invite() {
     if (!email.trim() || !groupId || inviteRoles.length === 0) return;
-    setSavingKey('invite'); setMessage(null);
-    const { error } = await supabase.rpc('invite_group_member', { p_group_id: groupId, p_email: email, p_roles: inviteRoles });
-    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo crear la invitación.') });
-    else {
-      setEmail(''); setInviteRoles(['patient']);
-      const reloaded = await loadScopedData();
-      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Invitación creada.' });
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey('invite'); setMessage(null);
+      const { error } = await supabase.rpc('invite_group_member_with_features', { p_group_id: groupId, p_email: email, p_roles: inviteRoles, p_features: inviteFeatures });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo crear la invitación.') });
+      else {
+        setEmail(''); setInviteRoles(['patient']); setInviteFeatures([]);
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Invitación creada.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
     }
-    setSavingKey(null);
+  }
+
+  async function saveFeatures(member: Member) {
+    const features = draftFeatures[member.membership_id] ?? [];
+    if (features.length === 0 && !window.confirm(`¿Retirar todas las funcionalidades de ${member.full_name || member.email} en ${member.group_name}?`)) return;
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey(member.membership_id); setMessage(null);
+      const { error } = await supabase.rpc('set_member_features', { p_membership_id: member.membership_id, p_features: features });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar las funcionalidades.') });
+      else {
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Funcionalidades actualizadas.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
+    }
   }
 
   async function saveRoles(member: Member) {
     const allowedCodes = new Set(allowedRoles.map(({ code }) => code));
     const roles = (draftRoles[member.membership_id] ?? []).filter((role) => allowedCodes.has(role));
     if (roles.length === 0) return;
-    setSavingKey(member.membership_id); setMessage(null);
-    const { error } = await supabase.rpc('set_member_roles', { p_membership_id: member.membership_id, p_roles: roles });
-    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar los roles.') });
-    else {
-      const reloaded = await loadScopedData();
-      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Roles actualizados.' });
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey(member.membership_id); setMessage(null);
+      const { error } = await supabase.rpc('set_member_roles', { p_membership_id: member.membership_id, p_roles: roles });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar los roles.') });
+      else {
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Roles actualizados.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
     }
-    setSavingKey(null);
   }
 
   async function disableMembership(member: Member) {
     if (!window.confirm(destructiveActionConfirmation('membership', member.full_name, member.email, member.group_name))) return;
-    setSavingKey(member.membership_id); setMessage(null);
-    const { error } = await supabase.rpc('disable_membership', { p_membership_id: member.membership_id });
-    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo desactivar la membresía.') });
-    else {
-      const reloaded = await loadScopedData();
-      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Membresía desactivada.' });
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey(member.membership_id); setMessage(null);
+      const { error } = await supabase.rpc('disable_membership', { p_membership_id: member.membership_id });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo desactivar la membresía.') });
+      else {
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Membresía desactivada.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
     }
-    setSavingKey(null);
   }
 
   async function setAccountActive(member: Member, active: boolean) {
@@ -150,28 +200,40 @@ export default function UsersPage() {
     if (!active) {
       if (!window.confirm(destructiveActionConfirmation('account', member.full_name, member.email, member.group_name))) return;
     }
-    setSavingKey(member.membership_id); setMessage(null);
-    const { error } = await supabase.rpc('set_user_active', { p_user_id: member.user_id, p_is_active: active });
-    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el estado de la cuenta.') });
-    else {
-      const reloaded = await loadScopedData();
-      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: active ? 'Cuenta activada.' : 'Cuenta desactivada.' });
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey(member.membership_id); setMessage(null);
+      const { error } = await supabase.rpc('set_user_active', { p_user_id: member.user_id, p_is_active: active });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el estado de la cuenta.') });
+      else {
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: active ? 'Cuenta activada.' : 'Cuenta desactivada.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
     }
-    setSavingKey(null);
   }
 
   async function setUserSudo(member: Member, sudo: boolean) {
     if (!member.user_id) return;
     const action = sudo ? 'sudo-grant' : 'sudo-revoke';
     if (!window.confirm(destructiveActionConfirmation(action, member.full_name, member.email, member.group_name))) return;
-    setSavingKey(member.membership_id); setMessage(null);
-    const { error } = await supabase.rpc('set_user_sudo', { target_user: member.user_id, sudo });
-    if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el acceso sudo.') });
-    else {
-      const reloaded = await loadScopedData();
-      if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: sudo ? 'Acceso sudo concedido.' : 'Acceso sudo retirado.' });
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
+    try {
+      setSavingKey(member.membership_id); setMessage(null);
+      const { error } = await supabase.rpc('set_user_sudo', { target_user: member.user_id, sudo });
+      if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el acceso sudo.') });
+      else {
+        const reloaded = await loadScopedData();
+        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: sudo ? 'Acceso sudo concedido.' : 'Acceso sudo retirado.' });
+      }
+    } finally {
+      setSavingKey(null);
+      mutationLock.release();
     }
-    setSavingKey(null);
   }
 
   if (loading) return <main className="flex min-h-screen items-center justify-center bg-[#FAF7F2] text-sm text-slate-500">Cargando gestión de usuarios…</main>;
@@ -193,6 +255,7 @@ export default function UsersPage() {
             <label className="text-xs font-semibold">Grupo<select value={groupId} onChange={(event) => setGroupId(event.target.value)} disabled={!isSudo || savingKey !== null} className="mt-2 w-full rounded-2xl bg-slate-50 px-4 py-3 text-sm font-normal">{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={inviteRoles.includes(code)} onChange={() => setInviteRoles((roles) => toggleRole(roles, code))} disabled={savingKey !== null} />{label}</label>)}</div>
+          <div className="mt-4"><p className="mb-2 text-xs font-semibold">Funcionalidades</p><div className="flex flex-wrap gap-2">{ALL_FEATURES.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={inviteFeatures.includes(code)} onChange={() => setInviteFeatures((features) => toggleFeature(features, code))} disabled={savingKey !== null} />{label}</label>)}</div></div>
           <button type="button" onClick={() => void invite()} disabled={!email.trim() || !groupId || inviteRoles.length === 0 || savingKey !== null} className="mt-5 rounded-2xl bg-slate-800 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{savingKey === 'invite' ? 'Invitando…' : 'Crear invitación'}</button>
         </section>}
 
@@ -200,11 +263,14 @@ export default function UsersPage() {
           <div className="grid gap-4 lg:grid-cols-2">{members.map((member) => {
             const actions = deriveMemberActions(isSudo, currentProfile?.id ?? '', member.user_id, member.status, member.roles, member.is_active);
             const isSelf = member.user_id === currentProfile?.id;
-            const busy = savingKey === member.membership_id;
+            const busy = savingKey !== null;
             const roles = draftRoles[member.membership_id] ?? [];
+            const features = draftFeatures[member.membership_id] ?? [];
             return <article key={member.membership_id} className="rounded-3xl border border-rose-50 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate font-bold text-slate-800">{member.full_name || 'Invitación pendiente'}</h3><p className="truncate text-xs text-slate-500">{member.email}</p><p className="mt-1 text-xs text-rose-400">{member.group_name} · {member.status}{isSudo && member.is_active !== null ? ` · cuenta ${member.is_active ? 'activa' : 'inactiva'}` : ''}{isSudo && member.is_sudo ? ' · sudo' : ''}</p></div><ShieldCheck className="shrink-0 text-rose-300" size={20} /></div>
               <div className="mt-4 flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={roles.includes(code)} onChange={() => setDraftRoles((all) => ({ ...all, [member.membership_id]: toggleRole(roles, code) }))} disabled={!actions.canEditRoles || busy} />{label}</label>)}</div>
+              <div className="mt-4"><p className="mb-2 text-xs font-semibold">Funcionalidades</p><div className="flex flex-wrap gap-2">{ALL_FEATURES.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={features.includes(code)} onChange={() => setDraftFeatures((all) => ({ ...all, [member.membership_id]: toggleFeature(features, code) }))} disabled={!actions.canSetFeatures || busy} />{label}</label>)}</div></div>
+              <button type="button" onClick={() => void saveFeatures(member)} disabled={!actions.canSetFeatures || busy} className="mt-3 rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar funcionalidades'}</button>
               <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void saveRoles(member)} disabled={!actions.canEditRoles || busy || roles.length === 0} className="rounded-xl bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar roles'}</button><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex items-center gap-1 rounded-xl bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="rounded-xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="rounded-xl bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div>
               {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
             </article>;

@@ -2,9 +2,16 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import {
+  createLatestRequestGuard,
+  createMutationLock,
+  deriveFeatureCapabilities,
+  deriveReviewMap,
+  normalizeFeatureRows,
+} from '@/lib/feature-permissions';
 import { 
   Check, 
   ExternalLink, 
@@ -164,7 +171,12 @@ const formatDateString = (d: Date) => {
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
+  const [authGeneration, setAuthGeneration] = useState<number>(0);
   const [loadingSession, setLoadingSession] = useState<boolean>(true);
+  const [loadingFeatures, setLoadingFeatures] = useState<boolean>(true);
+  const [featureError, setFeatureError] = useState<string | null>(null);
+  const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
+  const { canRateRecipes, canSendReport, canOpenNotes } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(formatDateString(new Date()));
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -185,6 +197,7 @@ export default function Home() {
   const [currentRating, setCurrentRating] = useState<number>(5);
   const [currentNotes, setCurrentNotes] = useState<string>('');
   const [savingReview, setSavingReview] = useState<boolean>(false);
+  const [mutatingReviews, setMutatingReviews] = useState<boolean>(false);
 
   // Estado para modal de añadir comida libre
   const [showAddMealModal, setShowAddMealModal] = useState<boolean>(false);
@@ -194,6 +207,9 @@ export default function Home() {
 
   // Estado para feedback de copiado al portapapeles
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const requestGuardRef = useRef(createLatestRequestGuard());
+  const mutationGuardRef = useRef(createLatestRequestGuard());
+  const reviewMutationBusyRef = useRef(createMutationLock());
 
   useEffect(() => {
     const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
@@ -201,44 +217,100 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    const requestGuard = requestGuardRef.current;
+    const initialSessionGeneration = requestGuard.currentGeneration();
+    const applyAuthSession = (nextSession: Session | null) => {
+      const generation = requestGuard.invalidate();
+      mutationGuardRef.current.invalidate();
+      reviewMutationBusyRef.current.reset();
+      setSession(nextSession);
+      setAuthGeneration(generation);
+      setMeals([]);
+      setReviews({});
+      setRecipes([]);
+      setFeatureCapabilities(deriveFeatureCapabilities([]));
+      setCurrentTab('plan');
+      setActiveRecipe(null);
+      setSavingReview(false);
+      setMutatingReviews(false);
+      setFeatureError(null);
+      setLoadingFeatures(Boolean(nextSession));
+      setLoading(Boolean(nextSession));
       setLoadingSession(false);
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (requestGuard.isGenerationCurrent(initialSessionGeneration)) {
+        applyAuthSession(session);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setLoadingSession(false);
+      applyAuthSession(session);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      requestGuard.invalidate();
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     if (session) {
       fetchData(selectedDate);
     }
-  }, [selectedDate, session]);
+  }, [selectedDate, session, authGeneration]);
+
+  useEffect(() => {
+    if (!canOpenNotes) {
+      // El permiso puede retirarse mientras la pestaña o el modal están abiertos.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCurrentTab('plan');
+      setActiveRecipe(null);
+    }
+  }, [canOpenNotes]);
 
   async function fetchData(dateToFetch?: string) {
     const targetDate = dateToFetch || selectedDate;
-    setLoading(true);
+    const userId = session?.user?.id;
+    if (!userId) return;
 
-    if (!session?.user?.id) return;
+    const requestGuard = requestGuardRef.current;
+    const request = requestGuard.startRequest(
+      requestGuard.currentGeneration(),
+      userId,
+      targetDate,
+    );
+    const commit = (update: () => void) => {
+      if (requestGuard.isCurrent(request)) update();
+    };
+
+    commit(() => setLoading(true));
+
+    const { data: featuresData, error: featuresError } = await supabase.rpc('get_my_features');
+    if (!requestGuard.isCurrent(request)) return;
+    const nextCapabilities = featuresError
+      ? deriveFeatureCapabilities([])
+      : deriveFeatureCapabilities(normalizeFeatureRows(featuresData));
+
+    commit(() => setFeatureCapabilities(nextCapabilities));
+    commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
+    commit(() => setLoadingFeatures(false));
 
     // 1. Cargar comidas de la fecha seleccionada
     const { data: mealsData, error: mealsError } = await supabase
       .from('daily_plan')
       .select('*')
       .eq('date', targetDate)
-      .eq('user_id', session.user.id)
+      .eq('user_id', userId)
       .order('created_at', { ascending: true });
+    if (!requestGuard.isCurrent(request)) return;
 
     if (mealsError) {
       console.error('Error cargando comidas:', mealsError);
-      setMeals([]);
+      commit(() => setMeals([]));
     } else if (mealsData) {
       const orderMap = MEAL_TYPES.reduce<Record<string, number>>((acc, type, idx) => {
         acc[type] = idx;
@@ -249,24 +321,23 @@ export default function Home() {
         const orderB = orderMap[b.meal_type] ?? 99;
         return orderA - orderB;
       });
-      setMeals(sortedMeals);
+      commit(() => setMeals(sortedMeals));
     } else {
-      setMeals([]);
+      commit(() => setMeals([]));
     }
 
-    // 2. Cargar todas las notas/ratings por receta
-    const { data: reviewsData } = await supabase
-      .from('recipe_reviews')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('updated_at', { ascending: false });
-
-    if (reviewsData) {
-      const reviewMap: Record<string, RecipeReview> = {};
-      reviewsData.forEach((rev: any) => {
-        reviewMap[rev.recipe_title] = rev;
-      });
-      setReviews(reviewMap);
+    // 2. Cargar notas/ratings solo si alguna función autorizada los necesita
+    if (nextCapabilities.canOpenNotes) {
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from('recipe_reviews')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false });
+      if (!requestGuard.isCurrent(request)) return;
+      const reviewMap = deriveReviewMap<RecipeReview>(reviewsData, reviewsError);
+      commit(() => setReviews(reviewMap));
+    } else {
+      commit(() => setReviews({}));
     }
 
     // 3. Cargar catálogo de recetas (desde tabla recipes y respaldo desde daily_plan)
@@ -274,6 +345,7 @@ export default function Home() {
       .from('recipes')
       .select('*')
       .order('title', { ascending: true });
+    if (!requestGuard.isCurrent(request)) return;
 
     let allRecipes: Recipe[] = (recipesData as Recipe[]) || [];
 
@@ -281,6 +353,7 @@ export default function Home() {
     const { data: planMeals } = await supabase
       .from('daily_plan')
       .select('title, meal_type, ingredients, recipe_url, is_free_meal');
+    if (!requestGuard.isCurrent(request)) return;
 
     if (planMeals) {
       const titlesSet = new Set(allRecipes.map(r => r.title.toLowerCase().trim()));
@@ -297,8 +370,8 @@ export default function Home() {
       });
     }
 
-    setRecipes(allRecipes);
-    setLoading(false);
+    commit(() => setRecipes(allRecipes));
+    commit(() => setLoading(false));
   }
 
   // Agrupación de recetas por tipo para el desplegable
@@ -342,7 +415,14 @@ export default function Home() {
   const changeDate = (days: number) => {
     const d = parseDateString(selectedDate);
     d.setDate(d.getDate() + days);
-    setSelectedDate(formatDateString(d));
+    selectDate(formatDateString(d));
+  };
+
+  const selectDate = (nextDate: string) => {
+    requestGuardRef.current.invalidateRequests();
+    setLoading(true);
+    setMeals([]);
+    setSelectedDate(nextDate);
   };
 
   // Selección de receta para una comida libre existente
@@ -597,6 +677,7 @@ export default function Home() {
 
   // Modal de notas
   const openReviewModal = (title: string) => {
+    if (!canRateRecipes || reviewMutationBusyRef.current.isBusy()) return;
     setActiveRecipe(title);
     const existing = reviews[title];
     setCurrentRating(existing?.rating || 5);
@@ -604,44 +685,83 @@ export default function Home() {
   };
 
   const saveReview = async () => {
+    if (!canRateRecipes) return;
     if (!activeRecipe) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const reviewMutationLock = reviewMutationBusyRef.current;
+    if (!reviewMutationLock.tryAcquire()) return;
+    const mutationGuard = mutationGuardRef.current;
+    const mutation = mutationGuard.startRequest(
+      mutationGuard.currentGeneration(),
+      userId,
+      activeRecipe,
+    );
     setSavingReview(true);
+    setMutatingReviews(true);
 
     const payload = {
       recipe_title: activeRecipe,
       rating: currentRating,
       notes: currentNotes,
       updated_at: new Date().toISOString(),
-      user_id: session?.user?.id
+      user_id: userId
     };
 
-    const { error } = await supabase
-      .from('recipe_reviews')
-      .upsert(payload, { onConflict: 'recipe_title' });
+    try {
+      const { error } = await supabase
+        .from('recipe_reviews')
+        .upsert(payload, { onConflict: 'recipe_title' });
 
-    if (!error) {
+      if (!mutationGuard.isCurrent(mutation) || error) return;
       setReviews(prev => ({
         ...prev,
         [activeRecipe]: payload
       }));
       setActiveRecipe(null);
+    } finally {
+      if (mutationGuard.isGenerationCurrent(mutation.generation)) {
+        reviewMutationLock.release();
+        setMutatingReviews(false);
+        setSavingReview(false);
+      }
     }
-    setSavingReview(false);
   };
 
   const deleteReview = async (recipeTitle: string) => {
+    if (!canRateRecipes) return;
+    const reviewMutationLock = reviewMutationBusyRef.current;
+    if (reviewMutationLock.isBusy()) return;
     if (!window.confirm(`¿Seguro que quieres eliminar la nota de "${recipeTitle}"?`)) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+    if (!reviewMutationLock.tryAcquire()) return;
+    const mutationGuard = mutationGuardRef.current;
+    const mutation = mutationGuard.startRequest(
+      mutationGuard.currentGeneration(),
+      userId,
+      recipeTitle,
+    );
+    setMutatingReviews(true);
 
-    await supabase
-      .from('recipe_reviews')
-      .delete()
-      .eq('recipe_title', recipeTitle);
+    try {
+      const { error } = await supabase
+        .from('recipe_reviews')
+        .delete()
+        .eq('recipe_title', recipeTitle);
 
-    setReviews(prev => {
-      const next = { ...prev };
-      delete next[recipeTitle];
-      return next;
-    });
+      if (!mutationGuard.isCurrent(mutation) || error) return;
+      setReviews(prev => {
+        const next = { ...prev };
+        delete next[recipeTitle];
+        return next;
+      });
+    } finally {
+      if (mutationGuard.isGenerationCurrent(mutation.generation)) {
+        reviewMutationLock.release();
+        setMutatingReviews(false);
+      }
+    }
   };
 
   // Copiar al portapapeles (compatible con móviles y navegadores modernos)
@@ -691,7 +811,7 @@ export default function Home() {
   const fullReportText = generateFullReport();
   const notesCount = reviewedItems.filter(r => r.notes && r.notes.trim()).length;
 
-  if (loadingSession) {
+  if (loadingSession || (session && loadingFeatures)) {
     return (
       <main className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">
         <div className="animate-pulse text-pink-400 font-medium">Cargando...</div>
@@ -728,6 +848,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#FAF7F2] text-slate-700 pb-28 max-w-md mx-auto relative font-sans">
+      {featureError && (
+        <p className="px-5 pt-3 text-center text-xs text-rose-500" role="alert">{featureError}</p>
+      )}
       {/* Toast de Copiado */}
       {copiedKey && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl text-xs font-medium shadow-xl flex items-center gap-2 border border-pink-500/30 animate-in fade-in slide-in-from-top-3">
@@ -954,19 +1077,22 @@ export default function Home() {
                           )}
 
                           {/* Botón para poner/editar Nota Única de la Receta */}
-                          <button
-                            onClick={() => openReviewModal(meal.title)}
-                            className="inline-flex items-center gap-1 text-xs text-purple-500 font-medium bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl transition-colors"
-                          >
-                            <MessageSquare size={12} />
-                            <span>{review?.notes ? 'Ver nota' : 'Añadir nota'}</span>
-                            {review?.rating && (
-                              <div className="flex items-center ml-1 text-amber-400">
-                                <Star size={10} fill="currentColor" />
-                                <span className="text-[10px] text-slate-600 ml-0.5 font-bold">{review.rating}</span>
-                              </div>
-                            )}
-                          </button>
+                          {canRateRecipes && (
+                            <button
+                              onClick={() => openReviewModal(meal.title)}
+                              disabled={mutatingReviews}
+                              className="inline-flex items-center gap-1 text-xs text-purple-500 font-medium bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl transition-colors"
+                            >
+                              <MessageSquare size={12} />
+                              <span>{review?.notes ? 'Ver nota' : 'Añadir nota'}</span>
+                              {review?.rating && (
+                                <div className="flex items-center ml-1 text-amber-400">
+                                  <Star size={10} fill="currentColor" />
+                                  <span className="text-[10px] text-slate-600 ml-0.5 font-bold">{review.rating}</span>
+                                </div>
+                              )}
+                            </button>
+                          )}
                         </div>
 
                         {review?.notes && (
@@ -996,7 +1122,7 @@ export default function Home() {
       )}
 
       {/* VISTA 2: APARTADO DE NOTAS PARA LA CHICA */}
-      {currentTab === 'notes' && (
+      {currentTab === 'notes' && canOpenNotes && (
         <section className="px-5 mt-5 space-y-4">
           {/* Tarjeta de Acciones Rápidas */}
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-pink-100">
@@ -1021,7 +1147,7 @@ export default function Home() {
                   Copia el resumen completo con estrellas y comentarios para pegarlo directamente en el chat con tu nutricionista:
                 </p>
 
-                <div className="flex flex-col gap-2.5">
+                {canSendReport && <div className="flex flex-col gap-2.5">
                   <button
                     onClick={() => copyToClipboard(fullReportText, 'all')}
                     className="w-full py-3 px-4 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all flex items-center justify-center gap-2"
@@ -1048,17 +1174,17 @@ export default function Home() {
                     <Send size={15} />
                     <span>Enviar directo por WhatsApp 💬</span>
                   </a>
-                </div>
+                </div>}
 
                 {/* Previsualización del texto a enviar */}
-                <div className="mt-4 pt-3 border-t border-slate-100">
+                {canSendReport && <div className="mt-4 pt-3 border-t border-slate-100">
                   <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider block mb-1.5">
                     Vista previa del mensaje:
                   </span>
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-[11px] text-slate-600 whitespace-pre-line font-mono max-h-48 overflow-y-auto leading-relaxed select-all">
                     {fullReportText}
                   </div>
-                </div>
+                </div>}
               </>
             )}
           </div>
@@ -1080,7 +1206,7 @@ export default function Home() {
                       <h4 className="font-semibold text-slate-800 text-sm leading-snug">
                         {rev.recipe_title}
                       </h4>
-                      <div className="flex items-center text-amber-400 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
+                      <div data-testid="review-rating-readonly" className="flex items-center text-amber-400 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
                         <Star size={11} fill="currentColor" />
                         <span className="text-[10px] text-slate-700 ml-1 font-bold">
                           {rev.rating || 5}/5
@@ -1098,7 +1224,7 @@ export default function Home() {
                   </div>
 
                   <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-50 text-xs">
-                    <button
+                    {canSendReport && <button
                       onClick={() => {
                         const singleText = `• *${rev.recipe_title}* ${'⭐'.repeat(rev.rating || 5)} (${rev.rating || 5}/5)\n  "${rev.notes || ''}"`;
                         copyToClipboard(singleText, rev.recipe_title);
@@ -1116,11 +1242,12 @@ export default function Home() {
                           <span>Copiar esta</span>
                         </>
                       )}
-                    </button>
+                    </button>}
 
-                    <div className="flex items-center gap-2">
+                    {canRateRecipes && <div className="flex items-center gap-2">
                       <button
                         onClick={() => openReviewModal(rev.recipe_title)}
+                        disabled={mutatingReviews}
                         className="inline-flex items-center gap-1 text-[11px] text-purple-600 hover:text-purple-700 bg-purple-50 px-2 py-1 rounded-xl"
                       >
                         <Edit3 size={12} />
@@ -1129,12 +1256,13 @@ export default function Home() {
 
                       <button
                         onClick={() => deleteReview(rev.recipe_title)}
+                        disabled={mutatingReviews}
                         className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
                         title="Eliminar nota"
                       >
                         <Trash2 size={13} />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               ))}
@@ -1144,7 +1272,7 @@ export default function Home() {
       )}
 
       {/* MODAL PARA EDITAR NOTA / VALORACIÓN DE RECETA */}
-      {activeRecipe && (
+      {canRateRecipes && activeRecipe && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4">
             <div className="flex items-center justify-between mb-4">
@@ -1162,6 +1290,7 @@ export default function Home() {
                 <button
                   key={star}
                   onClick={() => setCurrentRating(star)}
+                  disabled={mutatingReviews}
                   className="p-1 transition-transform hover:scale-110"
                 >
                   <Star
@@ -1177,13 +1306,14 @@ export default function Home() {
             <textarea
               value={currentNotes}
               onChange={(e) => setCurrentNotes(e.target.value)}
+              disabled={mutatingReviews}
               placeholder="Escribe tus impresiones (ej: 'Me encantó la salsa', 'Muy saciante', 'Cambiar el queso la próxima vez'...)"
               className="w-full text-xs p-3 rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-pink-300 focus:ring-1 focus:ring-pink-300 min-h-[90px] mb-4 text-slate-700"
             />
 
             <button
               onClick={saveReview}
-              disabled={savingReview}
+              disabled={mutatingReviews}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-medium text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity"
             >
               {savingReview ? 'Guardando...' : 'Guardar Nota'}
@@ -1406,7 +1536,7 @@ export default function Home() {
           <span className="text-[11px]">Plan Diario</span>
         </button>
 
-        <button
+        {canOpenNotes && <button
           onClick={() => setCurrentTab('notes')}
           className={`flex flex-col items-center gap-1 py-1 px-5 rounded-2xl transition-all relative ${
             currentTab === 'notes' 
@@ -1423,7 +1553,7 @@ export default function Home() {
             )}
           </div>
           <span className="text-[11px]">Notas chica 💌</span>
-        </button>
+        </button>}
       </nav>
     </main>
   );
