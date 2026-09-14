@@ -340,23 +340,16 @@ export default function Home() {
       commit(() => setReviews({}));
     }
 
-    // 3. Cargar catálogo de recetas (desde tabla recipes y respaldo desde daily_plan)
-    const { data: recipesData } = await supabase
-      .from('recipes')
-      .select('*')
-      .order('title', { ascending: true });
-    if (!requestGuard.isCurrent(request)) return;
-
-    let allRecipes: Recipe[] = (recipesData as Recipe[]) || [];
-
-    // Por seguridad, aseguramos que cualquier receta previa en daily_plan también aparezca
+    // 3. Construir el catálogo solo con recetas del plan del usuario autenticado
     const { data: planMeals } = await supabase
       .from('daily_plan')
-      .select('title, meal_type, ingredients, recipe_url, is_free_meal');
+      .select('title, meal_type, ingredients, recipe_url, is_free_meal')
+      .eq('user_id', userId);
     if (!requestGuard.isCurrent(request)) return;
 
+    const allRecipes: Recipe[] = [];
     if (planMeals) {
-      const titlesSet = new Set(allRecipes.map(r => r.title.toLowerCase().trim()));
+      const titlesSet = new Set<string>();
       planMeals.forEach((m: any) => {
         if (!m.is_free_meal && m.title && !m.title.includes('Libre') && !titlesSet.has(m.title.toLowerCase().trim())) {
           allRecipes.push({
