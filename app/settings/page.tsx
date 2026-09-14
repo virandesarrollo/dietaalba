@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Moon, Palette, Sun } from 'lucide-react';
-import { ViewNavigation } from '@/components/ViewNavigation';
+import { ArrowLeft, Check, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { supabase } from '@/lib/supabase';
@@ -46,22 +45,32 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="theme-page min-h-screen px-4 py-7 sm:px-8">
-      <div className="mx-auto max-w-4xl">
-        <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold text-rose-400">Preferencias personales</p>
-            <h1 className="mt-1 text-3xl font-bold text-slate-800">Ajustes</h1>
-          </div>
-          <ViewNavigation current="settings" />
-        </header>
+    <main className="theme-page min-h-screen max-w-md mx-auto pb-10 font-sans">
+      <header className="rounded-b-[2.5rem] border-b border-pink-100/50 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 px-6 pb-7 pt-8 shadow-sm">
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="mb-6 flex items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-xs font-semibold text-pink-500 shadow-sm transition hover:bg-white"
+          aria-label="Volver a mi dieta"
+        >
+          <ArrowLeft size={16} /> Mi dieta
+        </button>
+        <div className="flex items-center gap-2 text-pink-500">
+          <Sparkles size={18} />
+          <p className="text-xs font-semibold uppercase tracking-widest">Preferencias personales</p>
+        </div>
+        <h1 className="mt-2 text-3xl font-bold text-slate-800">Ajustes</h1>
+        <p className="theme-muted mt-2 text-sm">Personaliza tu experiencia en Dieta Alba.</p>
+      </header>
+
+      <div className="px-5 pt-7">
 
         {!canChangeTheme ? (
           <section className="theme-surface rounded-3xl p-7 shadow-sm">
             <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>
           </section>
         ) : (
-          <section className="theme-surface rounded-3xl p-5 shadow-sm sm:p-7">
+          <section className="theme-surface rounded-3xl p-5 shadow-sm">
             <div className="mb-6 flex items-center gap-3">
               <span className="rounded-2xl bg-rose-50 p-3 text-rose-400"><Palette size={20} /></span>
               <div>
@@ -70,7 +79,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               {([
                 { value: 'alba' as const, label: 'Tema Alba', description: 'Claro, cálido y con tonos pastel.', icon: Sun },
                 { value: 'dark' as const, label: 'Tema Oscuro', description: 'Fondos oscuros y contraste suave.', icon: Moon },

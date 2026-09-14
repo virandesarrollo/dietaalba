@@ -23,9 +23,10 @@ const VIEW_DATA = {
 type Props = {
   current: AppView;
   vertical?: boolean;
+  showSettings?: boolean;
 };
 
-export function ViewNavigation({ current, vertical = false }: Props) {
+export function ViewNavigation({ current, vertical = false, showSettings = true }: Props) {
   const router = useRouter();
   const [resolvedCapabilities, setResolvedCapabilities] = useState<Capabilities | null>(null);
   const [canAccessSettings, setCanAccessSettings] = useState(false);
@@ -65,7 +66,8 @@ export function ViewNavigation({ current, vertical = false }: Props) {
   }, []);
 
   if (!resolvedCapabilities) return null;
-  const views = deriveAvailableViews(resolvedCapabilities, { canAccessSettings });
+  const views = deriveAvailableViews(resolvedCapabilities, { canAccessSettings })
+    .filter((view) => showSettings || view !== 'settings');
   if (views.length < 2) return null;
 
   return (

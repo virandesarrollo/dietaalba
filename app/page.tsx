@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { ViewNavigation } from '@/components/ViewNavigation';
+import { AccountMenu } from '@/components/AccountMenu';
 import {
   createLatestRequestGuard,
   createMutationLock,
@@ -182,7 +183,7 @@ export default function Home() {
   const [loadingFeatures, setLoadingFeatures] = useState<boolean>(true);
   const [featureError, setFeatureError] = useState<string | null>(null);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
-  const { canRateRecipes, canSendReport, canOpenNotes } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(formatDateString(new Date()));
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -905,21 +906,14 @@ export default function Home() {
               {currentTab === 'plan' ? 'Mantra Diario' : 'Reporte para la chica'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => supabase.auth.signOut()}
-              className="text-[10px] text-pink-500/70 hover:text-pink-600 bg-white/40 hover:bg-white/70 transition-colors px-2 py-1 rounded-full font-medium"
-            >
-              Salir
-            </button>
-            <div className="w-8 h-8 bg-white/70 backdrop-blur-md rounded-full flex items-center justify-center text-xs font-bold text-pink-500 shadow-sm border border-pink-200">
-              {session?.user?.email?.charAt(0).toUpperCase() || 'A'}
-            </div>
-          </div>
+          <AccountMenu
+            email={session.user.email ?? ''}
+            canAccessSettings={canAccessSettings}
+          />
         </div>
 
         <div className="mb-4">
-          <ViewNavigation current="patient" />
+          <ViewNavigation current="patient" showSettings={false} />
         </div>
 
         {currentTab === 'plan' ? (
