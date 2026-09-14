@@ -22,8 +22,6 @@ type Profile = {
 
 type DailyPlanRow = {
   id: string;
-  user_id: string;
-  date: string;
   meal_type: string;
   title: string;
   ingredients: string | null;
@@ -93,7 +91,6 @@ export default function AdminPage() {
       if (sessionError || !session) {
         if (!active) return;
         sessionInitialized = true;
-        setLoading(false);
         router.push('/');
         return;
       }
@@ -115,7 +112,6 @@ export default function AdminPage() {
       if (!ownProfile || ownProfile.role !== 'nutritionist') {
         if (!active) return;
         sessionInitialized = true;
-        setLoading(false);
         router.push('/');
         return;
       }
@@ -130,7 +126,7 @@ export default function AdminPage() {
       sessionInitialized = true;
       setNutritionist(ownProfile as Profile);
       if (error) {
-        setMessage({ type: 'error', text: 'No se pudo cargar la lista de pacientes.' });
+        setMessage({ type: 'error', text: 'No se pudo cargar la lista de perfiles.' });
       } else {
         const allProfiles = (data ?? []) as Profile[];
         setProfiles(allProfiles);
@@ -149,7 +145,6 @@ export default function AdminPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (sessionInitialized && !session) {
-        setLoading(false);
         router.push('/');
       }
     });
@@ -173,7 +168,7 @@ export default function AdminPage() {
       setMessage(null);
       const { data, error } = await supabase
         .from('daily_plan')
-        .select('id, user_id, date, meal_type, title, ingredients, is_completed')
+        .select('id, meal_type, title, ingredients, is_completed')
         .eq('user_id', selectedPatientId)
         .eq('date', selectedDate);
 
@@ -311,7 +306,7 @@ export default function AdminPage() {
           <section className="min-h-0 flex-1">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
               <Users size={17} className="text-rose-400" />
-              Pacientes
+              Perfiles
             </div>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-380px)]">
               {profiles.map((profile) => {
@@ -338,7 +333,7 @@ export default function AdminPage() {
                 );
               })}
               {profiles.length === 0 && (
-                <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">No hay pacientes disponibles.</p>
+                <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">No hay perfiles disponibles.</p>
               )}
             </div>
           </section>
