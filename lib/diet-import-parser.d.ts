@@ -12,4 +12,4 @@ export function normalizeWeekday(value: unknown): Weekday | null;
 export function normalizeMealType(value: unknown): MealType | null;
 export function parseImportedJson(text: string): ImportResult;
 export function parseTabularText(text: string): ImportResult;
-export function buildExternalAiPrompt(sourceText: string): string;
+export function buildExternalAiPrompt(): string;

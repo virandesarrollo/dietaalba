@@ -76,7 +76,6 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   const today = localDateString();
   const [step, setStep] = useState(0);
   const [sourceKind, setSourceKind] = useState<'file' | 'external'>('file');
-  const [sourceText, setSourceText] = useState('');
   const [pastedJson, setPastedJson] = useState('');
   const [plan, setPlan] = useState<WeeklyPlan>(() => emptyWeeklyPlan());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -93,7 +92,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   const rpcGuardRef = useRef(false);
 
   const planJson = useMemo(() => stablePlanJson(plan), [plan]);
-  const externalPrompt = useMemo(() => buildExternalAiPrompt(sourceText), [sourceText]);
+  const externalPrompt = useMemo(() => buildExternalAiPrompt(), []);
 
   const activePrepared = prepared
     && prepared.patientId === patientId
@@ -170,7 +169,6 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
       if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
         const { extractPdf } = await import('@/lib/diet-import-pdf');
         const extracted = await extractPdf(file);
-        setSourceText(extracted.text);
         const parsed = parseTabularText(extracted.text);
         const needsExternal = extracted.warnings.includes('pdf-needs-external-conversion');
         acceptParsed({
@@ -183,7 +181,6 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
         return;
       }
       const text = await file.text();
-      setSourceText(text);
       acceptParsed(/\.json$/i.test(file.name) || file.type === 'application/json'
         ? parseImportedJson(text)
         : parseTabularText(text));
