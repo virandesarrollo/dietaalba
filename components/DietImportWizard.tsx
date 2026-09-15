@@ -46,7 +46,7 @@ const DAY_LABELS: Record<Weekday, string> = {
   monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles', thursday: 'Jueves',
   friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo',
 };
-const STEPS = ['Origen', 'Paciente y fecha', 'Revisión', 'Confirmación'];
+const STEPS = ['Origen y fecha', 'Revisión', 'Confirmación'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HASH_PATTERN = /^[0-9a-f]{64}$/i;
@@ -158,7 +158,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
 
   async function readFile(file: File) {
     setParsing(true);
-    setMessage('');
+    setMessage('Leyendo y validando el archivo…');
     try {
       if (file.type.startsWith('image/')) {
         setSourceKind('external');
@@ -195,7 +195,30 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   }
 
   function parsePastedJson() {
+    if (!pastedJson.trim()) {
+      setMessage('Pega primero el JSON que quieres validar.');
+      return;
+    }
     acceptParsed(parseImportedJson(pastedJson));
+  }
+
+  async function copyExternalPrompt() {
+    try {
+      await navigator.clipboard.writeText(externalPrompt);
+      setMessage('Prompt copiado al portapapeles.');
+    } catch {
+      setMessage('No se pudo copiar el prompt. Selecciona el texto y cópialo manualmente.');
+    }
+  }
+
+  function focusFirstError() {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const firstInvalid = dialogRef.current?.querySelector<HTMLElement>('[data-invalid="true"]');
+        firstInvalid?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstInvalid?.querySelector<HTMLElement>('input, textarea')?.focus();
+      });
+    });
   }
 
   function updateMeal(weekday: Weekday, mealType: MealType, field: 'title' | 'ingredients' | 'recipe_url', value: string) {
@@ -214,6 +237,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
     setErrors(validation.errors);
     if (!validation.ok) {
       setMessage('Corrige los campos no válidos antes de continuar.');
+      focusFirstError();
       return false;
     }
     setMessage('');
@@ -245,7 +269,8 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
       }
       setPrepared({ ...data[0], patientId, startDate, planJson: snapshotJson, plan: planSnapshot });
       setConfirmed(false);
-      setStep(3);
+      setMessage('Importación preparada. Revisa el resumen y confirma para aplicarla.');
+      setStep(2);
     } catch {
       setPrepared(null);
       setMessage('No se pudo conectar para preparar la importación. Inténtalo de nuevo.');
@@ -309,10 +334,16 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
           {message && <p role="status" className="mb-5 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{message}</p>}
 
           {step === 0 && <section>
-            <h3 className="text-lg font-bold text-slate-800">Origen</h3>
+            <h3 className="text-lg font-bold text-slate-800">Origen y fecha</h3>
+            <div className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2">
+              <p className="text-sm text-slate-600">Paciente<br /><strong>{patientName}</strong></p>
+              <label className="text-sm font-semibold">Fecha inicial
+                <input type="date" value={startDate} min={today} disabled={submitting || parsing} onChange={(event) => { setStartDate(event.target.value); setPrepared(null); setConfirmed(false); }} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-4 py-2" />
+              </label>
+            </div>
             <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-rose-200 bg-rose-50/50 p-8 text-sm font-semibold text-rose-600">
-              <Upload size={20} /> Seleccionar PDF, TXT, JSON o imagen
-              <input className="sr-only" type="file" accept=".pdf,.txt,.json,image/*" disabled={parsing || submitting} onChange={(event) => { const file = event.target.files?.[0]; if (file) void readFile(file); }} />
+              <Upload size={20} /> {parsing ? 'Procesando archivo…' : 'Seleccionar PDF, TXT, JSON o imagen'}
+              <input className="sr-only" type="file" accept=".pdf,.txt,.json,image/*" disabled={parsing || submitting || !patientId || startDate < today} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (file) void readFile(file); }} />
             </label>
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <AlertTriangle className="mr-2 inline" size={17} /> Si usas una IA externa, elimina antes nombre, correo, teléfono, diagnósticos y cualquier dato personal.
@@ -328,40 +359,39 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
             {sourceKind === 'external' && <div className="mt-5 space-y-3">
               <p className="text-sm text-slate-600">Adjunta el archivo a la herramienta externa elegida y usa este prompt:</p>
               <textarea readOnly rows={7} value={externalPrompt} className="w-full rounded-2xl border border-slate-200 p-3 text-xs" />
-              <button type="button" onClick={() => void navigator.clipboard.writeText(externalPrompt)} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
+              <button type="button" onClick={() => void copyExternalPrompt()} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
               <label className="block text-sm font-semibold">Pegar JSON
                 <textarea value={pastedJson} onChange={(event) => setPastedJson(event.target.value)} rows={8} className="mt-2 w-full rounded-2xl border border-slate-200 p-3 font-mono text-xs" />
               </label>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={parsePastedJson} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white">Validar JSON</button>
-                <button type="button" onClick={() => { setSourceKind('file'); setErrors({}); setWarnings([]); setMessage(''); }} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">Volver a intentar</button>
+                <button type="button" onClick={() => { setSourceKind('file'); setErrors({}); setWarnings([]); setMessage('Puedes seleccionar otro archivo.'); }} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">Volver a intentar</button>
               </div>
             </div>}
           </section>}
 
-          {step === 1 && <section className="max-w-xl">
-            <h3 className="text-lg font-bold text-slate-800">Paciente y fecha</h3>
-            <p className="mt-4 text-sm text-slate-600">Paciente: <strong>{patientName}</strong></p>
-            <label className="mt-4 block text-sm font-semibold">Fecha inicial
-              <input type="date" value={startDate} min={today} disabled={submitting} onChange={(event) => { setStartDate(event.target.value); setPrepared(null); setConfirmed(false); }} className="mt-2 block rounded-xl border border-slate-200 px-4 py-2" />
-            </label>
-            <button type="button" disabled={!patientId || startDate < today || submitting} onClick={() => setStep(2)} className="mt-6 rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Revisar plantilla</button>
-          </section>}
-
-          {step === 2 && <section>
+          {step === 1 && <section>
             <h3 className="text-lg font-bold text-slate-800">Revisión</h3>
             <p className="mt-1 text-sm text-slate-500">Los vacíos se resaltan para revisión, pero se permiten. Los errores de longitud o URL deben corregirse.</p>
             {warnings.length > 0 && <ul className="mt-3 text-xs text-amber-700">{warnings.map((warning, index) => <li key={`${warning.code}-${index}`}>• {warning.message}</li>)}</ul>}
-            <div className="mt-5 space-y-6">
-              {WEEKDAYS.map((weekday) => <article key={weekday} className="rounded-2xl border border-slate-200 p-4">
-                <h4 className="font-bold text-slate-800">{DAY_LABELS[weekday]}</h4>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="mt-5 space-y-3">
+              {WEEKDAYS.map((weekday, dayIndex) => {
+                const dayInvalid = Object.keys(errors).some((key) => key.startsWith(`${weekday}.`));
+                const completedMeals = plan[weekday].filter((meal) => meal.title.trim() || meal.ingredients.trim()).length;
+                return <details key={weekday} open={dayInvalid || dayIndex === 0 ? true : undefined} className={`rounded-2xl border ${dayInvalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200'}`}>
+                <summary className="cursor-pointer list-none px-4 py-3 font-bold text-slate-800">
+                  <span className="flex items-center justify-between gap-3">
+                    {DAY_LABELS[weekday]}
+                    <span className={`text-xs font-medium ${dayInvalid ? 'text-red-600' : 'text-slate-400'}`}>{dayInvalid ? 'Revisar errores' : `${completedMeals}/${MEAL_TYPES.length} comidas`}</span>
+                  </span>
+                </summary>
+                <div className="grid gap-3 border-t border-slate-100 p-4 lg:grid-cols-2">
                   {MEAL_TYPES.map((mealType) => {
                     const meal = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
                     const prefix = `${weekday}.${mealType}`;
                     const invalid = Object.keys(errors).some((key) => key.startsWith(prefix));
                     const empty = !meal.title.trim() && !meal.ingredients.trim();
-                    return <fieldset key={mealType} disabled={submitting} className={`rounded-2xl border p-3 ${invalid ? 'border-red-300 bg-red-50' : empty ? 'border-amber-200 bg-amber-50/60' : 'border-slate-100 bg-slate-50'}`}>
+                    return <fieldset key={mealType} data-invalid={invalid ? 'true' : undefined} disabled={submitting} className={`rounded-2xl border p-3 ${invalid ? 'border-red-300 bg-red-50' : empty ? 'border-amber-200 bg-amber-50/60' : 'border-slate-100 bg-slate-50'}`}>
                       <legend className="px-1 text-xs font-bold text-slate-600">{mealType}</legend>
                       <input aria-label={`${DAY_LABELS[weekday]} ${mealType} título`} value={meal.title} maxLength={201} onChange={(event) => updateMeal(weekday, mealType, 'title', event.target.value)} placeholder="Plato" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
                       <textarea aria-label={`${DAY_LABELS[weekday]} ${mealType} ingredientes`} value={meal.ingredients} maxLength={5001} onChange={(event) => updateMeal(weekday, mealType, 'ingredients', event.target.value)} placeholder="Ingredientes e indicaciones" rows={2} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
@@ -370,12 +400,15 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
                     </fieldset>;
                   })}
                 </div>
-              </article>)}
+              </details>})}
             </div>
-            <button type="button" disabled={submitting} onClick={() => void prepareImport()} className="mt-6 rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Preparar confirmación</button>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button type="button" disabled={submitting} onClick={() => { setMessage('Puedes seleccionar otro archivo o cambiar la fecha.'); setStep(0); }} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-semibold text-slate-700">Volver</button>
+              <button type="button" disabled={submitting} onClick={() => void prepareImport()} className="rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Preparar confirmación</button>
+            </div>
           </section>}
 
-          {step === 3 && activePrepared && <section className="mx-auto max-w-xl">
+          {step === 2 && activePrepared && <section className="mx-auto max-w-xl">
             <h3 className="text-lg font-bold text-slate-800">Confirmación</h3>
             <dl className="mt-5 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-5 text-sm">
               <dt>Paciente</dt><dd className="font-semibold">{patientName}</dd>
@@ -388,7 +421,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
               Entiendo que reemplazará toda la dieta futura
             </label>
             <div className="mt-6 flex gap-3">
-              <button type="button" disabled={submitting} onClick={() => { setPrepared(null); setConfirmed(false); setStep(2); }} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-semibold">Volver</button>
+              <button type="button" disabled={submitting} onClick={() => { setPrepared(null); setConfirmed(false); setMessage('Puedes revisar y corregir la plantilla.'); setStep(1); }} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-semibold">Volver</button>
               <button type="button" disabled={submitting || !confirmed} onClick={() => void applyImport()} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{submitting ? 'Aplicando…' : 'Reemplazar dieta futura'}</button>
             </div>
           </section>}
