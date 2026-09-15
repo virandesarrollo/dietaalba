@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { ViewNavigation } from '@/components/ViewNavigation';
@@ -35,7 +36,8 @@ import {
   Heart,
   ChevronDown,
   ArrowLeftRight,
-  RotateCcw
+  RotateCcw,
+  Dumbbell
 } from 'lucide-react';
 
 type Meal = {
@@ -178,13 +180,14 @@ const formatDateString = (d: Date) => {
 };
 
 export default function Home() {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [authGeneration, setAuthGeneration] = useState<number>(0);
   const [loadingSession, setLoadingSession] = useState<boolean>(true);
   const [loadingFeatures, setLoadingFeatures] = useState<boolean>(true);
   const [featureError, setFeatureError] = useState<string | null>(null);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackGymWorkouts } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
@@ -1586,6 +1589,15 @@ export default function Home() {
           <Calendar size={20} className={currentTab === 'plan' ? 'stroke-[2.5]' : ''} />
           <span className="text-[11px]">Plan Diario</span>
         </button>
+
+        {canTrackGymWorkouts && <button
+          type="button"
+          onClick={() => router.push('/training')}
+          className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-4 py-1 text-slate-400 hover:text-slate-600"
+        >
+          <Dumbbell size={20} />
+          <span className="text-[11px]">Entrenamiento</span>
+        </button>}
 
         {canOpenNotes && <button
           onClick={() => setCurrentTab('notes')}
