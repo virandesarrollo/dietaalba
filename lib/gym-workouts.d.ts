@@ -36,8 +36,31 @@ export type WorkoutExerciseCard = {
   sets: { id: string; weightKg: number; reps: number }[];
 };
 
+export type ExerciseGroupRelation = {
+  code: string;
+  name: string;
+  sort_order: number;
+};
+
+export type GroupedExerciseRow = {
+  code: string;
+  name: string;
+  gym_exercise_groups: ExerciseGroupRelation | ExerciseGroupRelation[];
+};
+
+export type AvailableExerciseGroup = {
+  code: string;
+  name: string;
+  exercises: { code: string; name: string }[];
+};
+
 export function validateWorkoutSet(set: WorkoutSet): WorkoutSet;
 export function adjustWorkoutValue(value: number, delta: number, minimum: number): number;
+export function decideFocusTrapTarget<T>(focusable: readonly T[], activeElement: T | null, shiftKey: boolean, activeIsContainer: boolean): T | null;
+export function groupAvailableExercises(
+  exercises: readonly GroupedExerciseRow[],
+  selectedExerciseCodes: readonly string[],
+): AvailableExerciseGroup[];
 export function toProgressPoints(rows: readonly WorkoutSetRow[]): ProgressPoint[];
 export function buildWorkoutExerciseCards(
   exercises: readonly WorkoutExerciseRow[],

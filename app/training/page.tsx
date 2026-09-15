@@ -1,17 +1,33 @@
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Dumbbell, Plus, X } from 'lucide-react';
-import { adjustWorkoutValue, buildWorkoutExerciseCards, validateWorkoutSet } from '@/lib/gym-workouts.js';
+import { Calendar, ChevronLeft, ChevronRight, Dumbbell, Plus, Trash2, X } from 'lucide-react';
+import { adjustWorkoutValue, buildWorkoutExerciseCards, decideFocusTrapTarget, groupAvailableExercises, validateWorkoutSet } from '@/lib/gym-workouts.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { madridDateString } from '@/lib/historical-date.js';
 import { supabase } from '@/lib/supabase';
 
 type Membership = { id: string; group_id: string };
-type Exercise = { code: string; name: string };
-type DailyExercise = { id: string; exercise_code: string; exercise_name_snapshot: string };
-type WorkoutSet = { id: string; exercise_code: string; weight_kg: number; reps: number; created_at: string };
+type ExerciseGroup = { code: string; name: string; sort_order: number };
+type Exercise = {
+  code: string;
+  name: string;
+  group_id: string;
+  gym_exercise_groups: ExerciseGroup | ExerciseGroup[];
+};
+type DailyExercise = {
+  id: string;
+  exercise_code: string;
+  exercise_name_snapshot: string;
+};
+type WorkoutSet = {
+  id: string;
+  exercise_code: string;
+  weight_kg: number;
+  reps: number;
+  created_at: string;
+};
 type RoleRow = { role_code: string };
 
 function shiftDate(date: string, amount: number) {
@@ -20,10 +36,25 @@ function shiftDate(date: string, amount: number) {
   return value.toISOString().slice(0, 10);
 }
 
-function StepControl({ label, value, delta, minimum, suffix, onChange }: {
-  label: string; value: number; delta: number; minimum: number; suffix: string; onChange: (value: number) => void;
-}) {
-  return <div><p className="mb-2 text-center text-xs font-semibold text-slate-500">{label}</p><div className="flex items-center gap-2"><button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">−</button><label className="min-w-0 flex-1"><span className="sr-only">{label}</span><input type="number" min={minimum} step={delta} value={value} onChange={(event) => onChange(Number(event.target.value))} className="min-h-12 w-full rounded-2xl border text-center font-bold" /></label><button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">+</button></div><p className="mt-1 text-center text-xs text-slate-400">{suffix}</p></div>;
+function StepControl({ label, value, delta, minimum, suffix, inputStep, onChange }: { label: string; value: number; delta: number; minimum: number; suffix: string; inputStep?: number | 'any'; onChange: (value: number) => void }) {
+  return (
+    <div>
+      <p className="mb-2 text-center text-xs font-semibold text-slate-500">{label}</p>
+      <div className="flex items-center gap-2">
+        <button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">
+          −
+        </button>
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">{label}</span>
+          <input type="number" min={minimum} step={inputStep ?? (minimum < 1 ? 'any' : delta)} value={value} onChange={(event) => onChange(Number(event.target.value))} className="min-h-12 w-full rounded-2xl border text-center font-bold" />
+        </label>
+        <button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">
+          +
+        </button>
+      </div>
+      <p className="mt-1 text-center text-xs text-slate-400">{suffix}</p>
+    </div>
+  );
 }
 
 export default function TrainingPage() {
@@ -44,86 +75,393 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const pickerDialogRef = useRef<HTMLElement>(null);
+  const pickerTriggerRef = useRef<HTMLButtonElement>(null);
+  const pickerWasOpen = useRef(false);
+  const mutationLockRef = useRef(false);
+  const workoutGenerationRef = useRef(0);
   const historical = workoutDate < today;
+
+  useEffect(() => {
+    if (!showPicker) {
+      if (pickerWasOpen.current) {
+        pickerWasOpen.current = false;
+        pickerTriggerRef.current?.focus();
+      }
+      return;
+    }
+
+    pickerWasOpen.current = true;
+    pickerDialogRef.current?.focus();
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setShowPicker(false);
+    }
+    document.addEventListener('keydown', closeWithEscape);
+    return () => document.removeEventListener('keydown', closeWithEscape);
+  }, [showPicker]);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showPicker]);
 
   useEffect(() => {
     let current = true;
     async function load() {
       setLoading(true);
+      setShowPicker(false);
       setDraftExerciseCode(null);
       setEditingSetId(null);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { router.replace('/'); return; }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace('/');
+        return;
+      }
       const membershipResult = await supabase.from('group_memberships').select('id, group_id').eq('user_id', session.user.id).eq('status', 'active').maybeSingle();
       const activeMembership = membershipResult.data as Membership | null;
-      if (!activeMembership) { router.replace('/'); return; }
-      const [rolesResult, featuresResult] = await Promise.all([
-        supabase.from('user_roles').select('role_code').eq('membership_id', activeMembership.id),
-        supabase.rpc('get_my_features'),
-      ]);
+      if (!activeMembership) {
+        router.replace('/');
+        return;
+      }
+      const [rolesResult, featuresResult] = await Promise.all([supabase.from('user_roles').select('role_code').eq('membership_id', activeMembership.id), supabase.rpc('get_my_features')]);
       const isPatient = (rolesResult.data ?? []).some((row) => (row as RoleRow).role_code === 'gym_patient');
       const canTrackGymWorkouts = deriveFeatureCapabilities(featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data)).canTrackGymWorkouts;
-      if (!isPatient || !canTrackGymWorkouts) { router.replace('/'); return; }
-      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([
-        supabase.from('gym_exercises').select('code, name').order('name'),
-        supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', session.user.id).eq('workout_date', workoutDate),
-        supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', session.user.id).eq('workout_date', workoutDate).order('created_at'),
-        supabase.rpc('get_my_gym_weight_step'),
-      ]);
+      if (!isPatient || !canTrackGymWorkouts) {
+        router.replace('/');
+        return;
+      }
+      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, gym_exercise_groups!inner(code, name, sort_order)'), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', session.user.id).eq('workout_date', workoutDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', session.user.id).eq('workout_date', workoutDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
       if (!current) return;
-      setMembership(activeMembership); setUserId(session.user.id);
-      setCatalog((catalogResult.data ?? []) as Exercise[]); setDailyExercises((dailyResult.data ?? []) as DailyExercise[]); setSets((setsResult.data ?? []) as WorkoutSet[]);
+      setMembership(activeMembership);
+      setUserId(session.user.id);
+      setCatalog((catalogResult.data ?? []) as Exercise[]);
+      setDailyExercises((dailyResult.data ?? []) as DailyExercise[]);
+      setSets((setsResult.data ?? []) as WorkoutSet[]);
       if (typeof stepResult.data === 'number' && stepResult.data > 0) setGymWeightStep(stepResult.data);
       setFeedback(catalogResult.error || dailyResult.error || setsResult.error ? 'No se pudo cargar el entrenamiento.' : '');
       setLoading(false);
     }
     void load();
-    return () => { current = false; };
+    return () => {
+      current = false;
+    };
   }, [router, workoutDate]);
 
   const cards = useMemo(() => buildWorkoutExerciseCards(dailyExercises, sets), [dailyExercises, sets]);
-  const availableExercises = catalog.filter((exercise) => !dailyExercises.some((daily) => daily.exercise_code === exercise.code));
+  const availableExerciseGroups = useMemo(
+    () =>
+      groupAvailableExercises(
+        catalog,
+        dailyExercises.map((exercise) => exercise.exercise_code),
+      ),
+    [catalog, dailyExercises],
+  );
 
-  async function addExercise(exercise: Exercise) {
-    if (!membership || historical || saving) return;
+  function changeWorkoutDate(amount: number) {
+    if (mutationLockRef.current || saving) return;
+    workoutGenerationRef.current += 1;
+    setWorkoutDate((current) => shiftDate(current, amount));
+  }
+
+  async function addExercise(exercise: Pick<Exercise, 'code' | 'name'>) {
+    if (!membership || historical || mutationLockRef.current) return;
+    mutationLockRef.current = true;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
     setSaving(true);
-    const result = await supabase.from('gym_workout_exercises').insert({ user_id: userId, group_id: membership.group_id, exercise_code: exercise.code, workout_date: workoutDate }).select('id, exercise_code, exercise_name_snapshot').single();
-    if (result.error || !result.data) setFeedback('No se pudo añadir el ejercicio.');
-    else { setDailyExercises((value) => [...value, result.data as DailyExercise]); setShowPicker(false); }
-    setSaving(false);
+    try {
+      const result = await supabase
+        .from('gym_workout_exercises')
+        .insert({
+          user_id: userId,
+          group_id: membership.group_id,
+          exercise_code: exercise.code,
+          workout_date: workoutDate,
+        })
+        .select('id, exercise_code, exercise_name_snapshot')
+        .single();
+      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (result.error || !result.data) setFeedback('No se pudo añadir el ejercicio.');
+      else {
+        setDailyExercises((value) => [...value, result.data as DailyExercise]);
+        setShowPicker(false);
+      }
+    } finally {
+      mutationLockRef.current = false;
+      setSaving(false);
+    }
   }
 
   function beginNew(exerciseCode: string) {
     const previous = [...sets].reverse().find((set) => set.exercise_code === exerciseCode);
-    setDraftExerciseCode(exerciseCode); setEditingSetId(null); setDraftWeight(previous?.weight_kg ?? gymWeightStep); setDraftReps(previous?.reps ?? 1);
+    setDraftExerciseCode(exerciseCode);
+    setEditingSetId(null);
+    setDraftWeight(previous?.weight_kg ?? gymWeightStep);
+    setDraftReps(previous?.reps ?? 1);
   }
 
   function beginEdit(set: WorkoutSet) {
-    setDraftExerciseCode(set.exercise_code); setEditingSetId(set.id); setDraftWeight(set.weight_kg); setDraftReps(set.reps);
+    setDraftExerciseCode(set.exercise_code);
+    setEditingSetId(set.id);
+    setDraftWeight(set.weight_kg);
+    setDraftReps(set.reps);
   }
 
-  function cancelDraft() { setDraftExerciseCode(null); setEditingSetId(null); }
+  function cancelDraft() {
+    setDraftExerciseCode(null);
+    setEditingSetId(null);
+  }
 
   async function saveDraft(event: FormEvent, exerciseCode: string, exerciseName: string) {
     event.preventDefault();
-    if (!membership || historical || saving) return;
+    if (!membership || historical || mutationLockRef.current) return;
+    mutationLockRef.current = true;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
     try {
-      const validated = validateWorkoutSet({ weightKg: draftWeight, reps: draftReps });
-      setSaving(true); setFeedback('');
+      const validated = validateWorkoutSet({
+        weightKg: draftWeight,
+        reps: draftReps,
+      });
+      setSaving(true);
+      setFeedback('');
       const query = editingSetId
         ? supabase.from('gym_workout_sets').update({ weight_kg: validated.weightKg, reps: validated.reps }).eq('id', editingSetId).eq('user_id', userId).eq('workout_date', workoutDate)
-        : supabase.from('gym_workout_sets').insert({ user_id: userId, group_id: membership.group_id, exercise_code: exerciseCode, exercise_name_snapshot: exerciseName, workout_date: workoutDate, weight_kg: validated.weightKg, reps: validated.reps });
+        : supabase.from('gym_workout_sets').insert({
+            user_id: userId,
+            group_id: membership.group_id,
+            exercise_code: exerciseCode,
+            exercise_name_snapshot: exerciseName,
+            workout_date: workoutDate,
+            weight_kg: validated.weightKg,
+            reps: validated.reps,
+          });
       const result = await query.select('id, exercise_code, weight_kg, reps, created_at').single();
+      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback(editingSetId ? 'No se pudo actualizar la serie.' : 'No se pudo guardar la serie.');
       else {
         const saved = result.data as WorkoutSet;
-        setSets((currentSets) => editingSetId ? currentSets.map((set) => set.id === saved.id ? saved : set) : [...currentSets, saved]);
+        setSets((currentSets) => (editingSetId ? currentSets.map((set) => (set.id === saved.id ? saved : set)) : [...currentSets, saved]));
         cancelDraft();
       }
-    } catch (error) { setFeedback(error instanceof Error ? error.message : 'Revisa la serie.'); }
-    finally { setSaving(false); }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Revisa la serie.');
+    } finally {
+      mutationLockRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function deleteSet(set: WorkoutSet) {
+    if (!membership || historical || mutationLockRef.current) return;
+    if (!window.confirm('¿Eliminar esta serie?')) return;
+    mutationLockRef.current = true;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
+    setSaving(true);
+    try {
+      setFeedback('');
+      const result = await supabase
+        .from('gym_workout_sets')
+        .delete()
+        .eq('id', set.id)
+        .eq('user_id', userId)
+        .eq('group_id', membership.group_id)
+        .eq('workout_date', workoutDate)
+        .eq('exercise_code', set.exercise_code)
+        .select('id')
+        .maybeSingle();
+      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (result.error || !result.data) setFeedback('No se pudo eliminar la serie.');
+      else {
+        const deletedId = result.data.id;
+        setSets((currentSets) => currentSets.filter((item) => item.id !== deletedId));
+        if (editingSetId === set.id) cancelDraft();
+      }
+    } finally {
+      mutationLockRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function deleteDailyExercise(exercise: DailyExercise) {
+    if (!membership || historical || mutationLockRef.current) return;
+    if (!window.confirm('¿Quitar este ejercicio y todas sus series?')) return;
+    mutationLockRef.current = true;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
+    setSaving(true);
+    try {
+      setFeedback('');
+      const result = await supabase.rpc('delete_my_gym_workout_exercise', { p_exercise_id: exercise.id });
+      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (result.error) setFeedback('No se pudo quitar el ejercicio.');
+      else {
+        setDailyExercises((current) => current.filter((item) => item.id !== exercise.id));
+        setSets((current) => current.filter((item) => item.exercise_code !== exercise.exercise_code));
+        if (draftExerciseCode === exercise.exercise_code) cancelDraft();
+      }
+    } finally {
+      mutationLockRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  function handlePickerKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Tab') return;
+    const focusable = [...(pickerDialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])') ?? [])].filter((element) => {
+      if (element.hasAttribute('hidden') || element.hasAttribute('disabled')) return false;
+      const closedDetails = element.closest('details:not([open])');
+      return !closedDetails || (element.tagName === 'SUMMARY' && element.parentElement === closedDetails);
+    });
+    if (focusable.length === 0) {
+      event.preventDefault();
+      pickerDialogRef.current?.focus();
+      return;
+    }
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const target = decideFocusTrapTarget(focusable, activeElement, event.shiftKey, activeElement === pickerDialogRef.current);
+    if (target) {
+      event.preventDefault();
+      target.focus();
+    }
   }
 
   if (loading) return <main className="theme-page flex min-h-screen items-center justify-center">Cargando entrenamiento…</main>;
-  return <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-24"><header className="flex items-center justify-between"><button type="button" className="min-h-12 min-w-12" disabled={workoutDate <= today} onClick={() => setWorkoutDate(shiftDate(workoutDate, -1))}><ChevronLeft /></button><h1 className="font-bold">Entrenamiento</h1><button type="button" className="min-h-12 min-w-12" onClick={() => setWorkoutDate(shiftDate(workoutDate, 1))}><ChevronRight /></button></header><p className="mb-4 text-center text-sm">{workoutDate}</p>{feedback && <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-3 text-red-700">{feedback}</p>}{historical && <p>El histórico es de solo lectura.</p>}{cards.map((card) => <article key={card.id} className="mb-4 rounded-3xl bg-white p-5 shadow-sm"><h2 className="border-b pb-3 font-bold">{card.name}</h2>{card.sets.map((item) => { const rawSet = sets.find((set) => set.id === item.id)!; return editingSetId === item.id ? <form key={item.id} onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="border-b py-4"><div className="grid grid-cols-2 gap-3"><StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} /><StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} /></div><div className="mt-3 flex gap-2"><button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">Guardar</button><button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">Cancelar</button></div></form> : <div key={item.id} className="flex min-h-14 items-center justify-between border-b py-2"><b>{item.weightKg} kg</b><span>{item.reps} reps</span>{!historical && <button type="button" onClick={() => beginEdit(rawSet)} className="min-h-12 rounded-xl px-3 text-rose-500">Editar</button>}</div>; })}{draftExerciseCode === card.exerciseCode && editingSetId === null && <form onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="py-4"><div className="grid grid-cols-2 gap-3"><StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} /><StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} /></div><div className="mt-3 flex gap-2"><button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">Guardar</button><button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">Cancelar</button></div></form>}{!historical && draftExerciseCode !== card.exerciseCode && <button type="button" className="mt-3 min-h-12 w-full rounded-2xl bg-rose-50" onClick={() => beginNew(card.exerciseCode)}>Añadir serie</button>}</article>)}{!historical && <button type="button" className="min-h-12 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}><Plus className="inline" /> Añadir ejercicio</button>}{showPicker && <section className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md rounded-t-3xl bg-white p-5 shadow-2xl"><div className="flex justify-between"><h2 className="font-bold">Elige ejercicio</h2><button type="button" onClick={() => setShowPicker(false)} className="min-h-12 min-w-12"><X /></button></div>{availableExercises.map((exercise) => <button key={exercise.code} disabled={saving} className="min-h-12 w-full text-left" onClick={() => void addExercise(exercise)}>{exercise.name}</button>)}</section>}<nav className="fixed bottom-0 inset-x-0 z-40 mx-auto flex max-w-md justify-around bg-white"><button type="button" className="min-h-12" onClick={() => router.push('/')}>Plan diario</button><span className="flex min-h-12 items-center"><Dumbbell /> Entrenamiento</span></nav></main>;
+  return (
+    <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-24">
+      <header className="flex items-center justify-between">
+        <button type="button" aria-label="Día anterior" className="min-h-12 min-w-12" disabled={saving || workoutDate <= today} onClick={() => changeWorkoutDate(-1)}>
+          <ChevronLeft />
+        </button>
+        <h1 className="font-bold">Entrenamiento</h1>
+        <button type="button" aria-label="Día siguiente" className="min-h-12 min-w-12" disabled={saving} onClick={() => changeWorkoutDate(1)}>
+          <ChevronRight />
+        </button>
+      </header>
+      <p className="mb-4 text-center text-sm">{workoutDate}</p>
+      {feedback && (
+        <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-3 text-red-700">
+          {feedback}
+        </p>
+      )}
+      {historical && <p>El histórico es de solo lectura.</p>}
+      {cards.map((card) => (
+        <article key={card.id} className="mb-4 rounded-3xl bg-white p-5 shadow-sm">
+          <header className="flex min-h-12 items-center justify-between border-b pb-3">
+            <h2 className="font-bold">{card.name}</h2>
+            {!historical && (
+              <button type="button" disabled={saving} aria-label={`Quitar ${card.name}`} onClick={() => void deleteDailyExercise(dailyExercises.find((exercise) => exercise.id === card.id)!)} className="min-h-12 min-w-12 rounded-xl text-rose-500">
+                <Trash2 aria-hidden="true" className="mx-auto" />
+              </button>
+            )}
+          </header>
+          {card.sets.map((item) => {
+            const rawSet = sets.find((set) => set.id === item.id)!;
+            return editingSetId === item.id ? (
+              <form key={item.id} onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="border-b py-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} />
+                  <StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} />
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
+                    Guardar
+                  </button>
+                  <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div key={item.id} className="flex items-center gap-2 border-b py-2">
+                {historical ? (
+                  <div className="flex min-h-12 flex-1 items-center justify-between px-2">
+                    <b>{item.weightKg} kg</b>
+                    <span>{item.reps} reps</span>
+                  </div>
+                ) : (
+                  <button type="button" disabled={saving} onClick={() => beginEdit(rawSet)} className="flex min-h-12 flex-1 items-center justify-between rounded-xl px-2 text-left">
+                    <b>{item.weightKg} kg</b>
+                    <span>{item.reps} reps</span>
+                  </button>
+                )}
+                {!historical && (
+                  <button type="button" disabled={saving} aria-label={`Eliminar serie ${item.weightKg} kg, ${item.reps} repeticiones`} onClick={() => void deleteSet(rawSet)} className="min-h-12 min-w-12 rounded-xl text-rose-500">
+                    <Trash2 aria-hidden="true" className="mx-auto" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {draftExerciseCode === card.exerciseCode && editingSetId === null && (
+            <form onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="py-4">
+              <div className="grid grid-cols-2 gap-3">
+                <StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} />
+                <StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} />
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
+                  Guardar
+                </button>
+                <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
+          {!historical && draftExerciseCode !== card.exerciseCode && (
+            <button type="button" className="mt-3 min-h-12 w-full rounded-2xl bg-rose-50" onClick={() => beginNew(card.exerciseCode)}>
+              Añadir serie
+            </button>
+          )}
+        </article>
+      ))}
+      {!historical && (
+        <button ref={pickerTriggerRef} type="button" className="min-h-12 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
+          <Plus className="inline" /> Añadir ejercicio
+        </button>
+      )}
+      {showPicker && (
+        <div className="fixed inset-0 z-50 bg-slate-950/30">
+          <section ref={pickerDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="exercise-picker-title" onKeyDown={handlePickerKeyDown} className="absolute inset-x-0 bottom-0 mx-auto max-h-[80vh] max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl">
+            <div className="flex justify-between">
+              <h2 id="exercise-picker-title" className="font-bold">
+                Elige ejercicio
+              </h2>
+              <button type="button" aria-label="Cerrar selector de ejercicios" onClick={() => setShowPicker(false)} className="min-h-12 min-w-12">
+                <X />
+              </button>
+            </div>
+            {availableExerciseGroups.map((group) => (
+              <details key={group.code} className="border-b">
+                <summary className="flex min-h-12 cursor-pointer items-center font-semibold">{group.name}</summary>
+                {group.exercises.map((exercise) => (
+                  <button key={exercise.code} disabled={saving} className="min-h-12 w-full pl-4 text-left" onClick={() => void addExercise(exercise as Exercise)}>
+                    {exercise.name}
+                  </button>
+                ))}
+              </details>
+            ))}
+          </section>
+        </div>
+      )}
+      <nav className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md items-center justify-around bg-white/90 backdrop-blur-md border-t border-pink-100/70 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] px-6 z-40 shadow-[0_-4px_20px_rgba(244,114,182,0.06)]">
+        <button type="button" onClick={() => router.push('/')} className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-5 py-1 text-slate-400 transition-all hover:text-slate-600">
+          <Calendar size={20} aria-hidden="true" />
+          <span className="text-[11px]">Plan Diario</span>
+        </button>
+        <span aria-current="page" className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-5 py-1 text-pink-500 font-semibold scale-105">
+          <Dumbbell size={20} strokeWidth={2.5} aria-hidden="true" />
+          <span className="text-[11px]">Entrenamiento</span>
+        </span>
+      </nav>
+    </main>
+  );
 }
