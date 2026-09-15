@@ -35,49 +35,65 @@ body { font-family: Arial, Helvetica, sans-serif; }
 .theme-muted { color: var(--app-muted); }
 .theme-border { border-color: var(--app-border); }
 
-[data-theme='dark'] .bg-white,
-[data-theme='dark'] .bg-white\/90,
-[data-theme='dark'] .bg-white\/80,
-[data-theme='dark'] .bg-white\/70 {
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-white,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-white\/90,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-white\/80,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-white\/70 {
   background-color: color-mix(in srgb, var(--app-surface) 94%, transparent);
 }
 
-[data-theme='dark'] .bg-slate-50,
-[data-theme='dark'] .bg-slate-50\/50,
-[data-theme='dark'] .bg-rose-50,
-[data-theme='dark'] .bg-pink-50,
-[data-theme='dark'] .bg-pink-50\/60,
-[data-theme='dark'] .bg-amber-50,
-[data-theme='dark'] .bg-orange-50,
-[data-theme='dark'] .bg-emerald-50,
-[data-theme='dark'] .bg-indigo-50,
-[data-theme='dark'] .bg-purple-50 { background-color: var(--app-surface-soft); }
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-slate-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-slate-50\/50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-rose-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-pink-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-pink-50\/60,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-amber-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-orange-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-emerald-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-indigo-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-purple-50 { background-color: var(--app-surface-soft); }
 
-[data-theme='dark'] .text-slate-800,
-[data-theme='dark'] .text-slate-700,
-[data-theme='dark'] .text-slate-600 { color: var(--app-heading); }
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-800,
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-700,
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-600 { color: var(--app-heading); }
 
-[data-theme='dark'] .text-slate-500,
-[data-theme='dark'] .text-slate-400,
-[data-theme='dark'] .text-slate-300 { color: var(--app-muted); }
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-500,
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-400,
+:is([data-theme='dark'], [data-custom-colors='true']) .text-slate-300 { color: var(--app-muted); }
 
-[data-theme='dark'] .border-slate-50,
-[data-theme='dark'] .border-slate-100,
-[data-theme='dark'] .border-rose-50,
-[data-theme='dark'] .border-rose-100,
-[data-theme='dark'] .border-pink-50,
-[data-theme='dark'] .border-pink-100\/50,
-[data-theme='dark'] .border-pink-100\/60,
-[data-theme='dark'] .border-pink-100\/70 { border-color: var(--app-border); }
+:is([data-theme='dark'], [data-custom-colors='true']) .border-slate-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-slate-100,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-rose-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-rose-100,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-pink-50,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-pink-100\/50,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-pink-100\/60,
+:is([data-theme='dark'], [data-custom-colors='true']) .border-pink-100\/70 { border-color: var(--app-border); }
 
 [data-theme='dark'] .from-pink-100 { --tw-gradient-from: #352431; }
 [data-theme='dark'] .via-purple-100 { --tw-gradient-via: #29243a; }
 [data-theme='dark'] .to-blue-100 { --tw-gradient-to: #202d3c; }
 
-[data-theme='dark'] input,
-[data-theme='dark'] select,
-[data-theme='dark'] textarea {
+[data-custom-colors='true'] .from-pink-100 { --tw-gradient-from: color-mix(in srgb, var(--app-accent) 24%, var(--app-surface)); }
+[data-custom-colors='true'] .via-purple-100 { --tw-gradient-via: color-mix(in srgb, var(--app-accent) 14%, var(--app-surface)); }
+[data-custom-colors='true'] .to-blue-100 { --tw-gradient-to: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface)); }
+
+:is([data-theme='dark'], [data-custom-colors='true']) input,
+:is([data-theme='dark'], [data-custom-colors='true']) select,
+:is([data-theme='dark'], [data-custom-colors='true']) textarea {
   background-color: var(--app-surface-soft);
   color: var(--app-text);
+  border-color: var(--app-border);
+}
+
+[data-custom-colors='true'] :is([class*='text-pink-'], [class*='text-rose-'], [class*='text-purple-']) {
+  color: var(--app-accent);
+}
+
+[data-custom-colors='true'] :is(.bg-pink-400, .bg-pink-500, .bg-rose-500) {
+  background-color: var(--app-accent);
+}
+
+[data-custom-colors='true'] :is([class*='border-pink-'], [class*='border-rose-'], [class*='border-purple-']) {
   border-color: var(--app-border);
 }

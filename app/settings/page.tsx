@@ -5,14 +5,30 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
+import { validateColorPalette, type ThemeColorKey } from '@/lib/theme-preferences.js';
 import { supabase } from '@/lib/supabase';
+
+const COLOR_OPTIONS: Array<{ key: ThemeColorKey; label: string }> = [
+  { key: 'background', label: 'Fondo de la aplicación' },
+  { key: 'surface', label: 'Tarjetas y paneles' },
+  { key: 'surfaceSoft', label: 'Fondos secundarios' },
+  { key: 'text', label: 'Texto general' },
+  { key: 'heading', label: 'Títulos' },
+  { key: 'muted', label: 'Texto secundario' },
+  { key: 'border', label: 'Bordes' },
+  { key: 'accent', label: 'Botones y destacados' },
+];
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { theme, saving, error, setTheme } = useTheme();
+  const { theme, colors, saving, error, setTheme, setColors, resetColors } = useTheme();
+  const [colorEdits, setColorEdits] = useState<Partial<typeof colors>>({});
   const [loading, setLoading] = useState(true);
   const [canAccessSettings, setCanAccessSettings] = useState(false);
   const [canChangeTheme, setCanChangeTheme] = useState(false);
+  const draftColors = { ...colors, ...colorEdits };
+  const colorValidation = validateColorPalette(draftColors);
+  const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
 
   useEffect(() => {
     let active = true;
@@ -70,6 +86,7 @@ export default function SettingsPage() {
             <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>
           </section>
         ) : (
+          <div className="space-y-5">
           <section className="theme-surface rounded-3xl p-5 shadow-sm">
             <div className="mb-6 flex items-center gap-3">
               <span className="rounded-2xl bg-rose-50 p-3 text-rose-400"><Palette size={20} /></span>
@@ -90,7 +107,7 @@ export default function SettingsPage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => void setTheme(option.value)}
+                    onClick={() => { setColorEdits({}); void setTheme(option.value); }}
                     disabled={saving}
                     aria-pressed={selected}
                     className={`theme-border relative flex items-start gap-4 rounded-3xl border-2 p-5 text-left transition disabled:opacity-60 ${selected ? 'border-rose-400 ring-2 ring-rose-200' : ''}`}
@@ -109,6 +126,56 @@ export default function SettingsPage() {
             {saving && <p className="theme-muted mt-4 text-xs" role="status">Guardando…</p>}
             {error && <p className="mt-4 text-sm text-red-500" role="alert">{error}</p>}
           </section>
+
+          <section className="theme-surface rounded-3xl p-5 shadow-sm">
+            <div className="mb-5 flex items-center gap-3">
+              <span className="rounded-2xl bg-rose-50 p-3 text-rose-400"><Palette size={20} /></span>
+              <div>
+                <h2 className="font-bold text-slate-800">Colores personalizados</h2>
+                <p className="theme-muted mt-1 text-xs">Elige una paleta completa y guárdala cuando esté lista.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {COLOR_OPTIONS.map((option) => (
+                <label key={option.key} className="theme-border flex items-center justify-between gap-3 rounded-2xl border p-3 text-xs font-semibold">
+                  <span>{option.label}</span>
+                  <span className="flex items-center gap-2 font-mono">
+                    {draftColors[option.key]}
+                    <input
+                      type="color"
+                      aria-label={option.label}
+                      value={draftColors[option.key]}
+                      disabled={saving}
+                      onChange={(event) => setColorEdits((current) => ({ ...current, [option.key]: event.target.value }))}
+                      className="h-9 w-11 cursor-pointer rounded-lg border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+                    />
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {!colorValidation.ok && <p className="mt-4 text-sm text-red-500" role="alert">{colorValidation.error}</p>}
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                disabled={saving || !colorsChanged || !colorValidation.ok}
+                onClick={() => { void setColors(draftColors).then(() => setColorEdits({})); }}
+                className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                Guardar colores
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => { setColorEdits({}); void resetColors(); }}
+                className="theme-border rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-40"
+              >
+                Restaurar colores del tema
+              </button>
+            </div>
+          </section>
+          </div>
         )}
       </div>
     </main>
