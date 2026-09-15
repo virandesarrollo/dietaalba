@@ -825,16 +825,15 @@ export default function Home() {
 
   const generateFullReport = () => {
     if (reviewedItems.length === 0) return '';
-    let text = `🌸 *Notas de Comidas - Alba* 🌸\n\n`;
+    let text = `Resumen semanal:\n\n`;
     reviewedItems.forEach((rev, idx) => {
-      const stars = '⭐'.repeat(rev.rating || 5);
-      text += `${idx + 1}. *${rev.recipe_title}* ${stars} (${rev.rating || 5}/5)\n`;
+      text += `${idx + 1}. *${rev.recipe_title}* (${rev.rating || 5}/5)\n`;
       if (rev.notes && rev.notes.trim()) {
-        text += `   "${rev.notes.trim()}"\n`;
+        text += `${rev.notes.trim()}\n`;
       }
       text += `\n`;
     });
-    text += `✨ ¡Seguimos a tope! 💪`;
+    text += `¡Seguimos a tope! 💪`;
     return text;
   };
 
@@ -1589,7 +1588,7 @@ export default function Home() {
               </span>
             )}
           </div>
-          <span className="text-[11px]">Notas chica 💌</span>
+          <span className="text-[11px]">Ranking</span>
         </button>}
       </nav>
     </main>
