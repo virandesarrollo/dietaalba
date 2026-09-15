@@ -50,6 +50,16 @@ const STEPS = ['Origen y fecha', 'Revisión', 'Confirmación'];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HASH_PATTERN = /^[0-9a-f]{64}$/i;
+const IMPORT_DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+function formatImportDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return IMPORT_DATE_FORMATTER.format(new Date(year, month - 1, day));
+}
 
 function isPreparedResponse(value: unknown): value is Omit<PreparedImport, 'patientId' | 'startDate' | 'planJson' | 'plan'> {
   if (!value || typeof value !== 'object') return false;
@@ -435,9 +445,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
             <h3 className="text-lg font-bold text-slate-800">Confirmación</h3>
             <dl className="mt-5 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-5 text-sm">
               <dt>Paciente</dt><dd className="font-semibold">{patientName}</dd>
-              <dt>Fechas</dt><dd className="font-semibold">{activePrepared.startDate} — {activePrepared.end_date}</dd>
-              <dt>Filas que se eliminarán</dt><dd className="font-semibold">{activePrepared.delete_count}</dd>
-              <dt>Filas que se crearán</dt><dd className="font-semibold">{activePrepared.create_count}</dd>
+              <dt>Fechas</dt><dd className="font-semibold">{formatImportDate(activePrepared.startDate)} — {formatImportDate(activePrepared.end_date)}</dd>
             </dl>
             <label className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
               <input type="checkbox" checked={confirmed} disabled={submitting} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5" />
