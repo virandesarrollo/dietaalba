@@ -87,6 +87,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [promptCopyStatus, setPromptCopyStatus] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
   const rpcGuardRef = useRef(false);
@@ -204,9 +205,25 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
 
   async function copyExternalPrompt() {
     try {
-      await navigator.clipboard.writeText(externalPrompt);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(externalPrompt);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = externalPrompt;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        try {
+          textArea.select();
+          if (!document.execCommand('copy')) throw new Error('Copy failed');
+        } finally {
+          textArea.remove();
+        }
+      }
+      setPromptCopyStatus('Prompt copiado ✓');
       setMessage('Prompt copiado al portapapeles.');
     } catch {
+      setPromptCopyStatus('No se pudo copiar. Selecciona el texto y cópialo manualmente.');
       setMessage('No se pudo copiar el prompt. Selecciona el texto y cópialo manualmente.');
     }
   }
@@ -351,15 +368,24 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
             {Object.keys(errors).length > 0 && <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4">
               <p className="text-sm font-semibold text-red-800">Corrige estos problemas antes de continuar:</p>
               <ul className="mt-2 space-y-1 text-xs text-red-700">
-                {Object.entries(errors).map(([errorKey, error]) => <li key={errorKey}>
-                  <strong>{errorKey}</strong>: {error}. {errorKey.includes('.') ? 'Corrige este campo en el JSON.' : 'Revisa el formato del contenido.'}
-                </li>)}
+                {Object.entries(errors).map(([errorKey, error]) => {
+                  const isStructuralError = errorKey.startsWith('_');
+                  return <li key={errorKey}>
+                    <strong>{isStructuralError ? 'Formato del archivo' : errorKey}</strong>:{' '}
+                    {errorKey === '_table.structure'
+                      ? 'No se reconoció la tabla del PDF o archivo. Usa “Copiar prompt y esquema” y pega después el JSON generado.'
+                      : `${error}. ${errorKey.includes('.') ? 'Corrige este campo en el JSON.' : 'Revisa el formato del contenido.'}`}
+                  </li>;
+                })}
               </ul>
             </div>}
             {sourceKind === 'external' && <div className="mt-5 space-y-3">
               <p className="text-sm text-slate-600">Adjunta el archivo a la herramienta externa elegida y usa este prompt:</p>
               <textarea readOnly rows={7} value={externalPrompt} className="w-full rounded-2xl border border-slate-200 p-3 text-xs" />
-              <button type="button" onClick={() => void copyExternalPrompt()} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => void copyExternalPrompt()} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
+                <span aria-live="polite" role="status" className="text-sm font-semibold text-slate-600">{promptCopyStatus}</span>
+              </div>
               <label className="block text-sm font-semibold">Pegar JSON
                 <textarea value={pastedJson} onChange={(event) => setPastedJson(event.target.value)} rows={8} className="mt-2 w-full rounded-2xl border border-slate-200 p-3 font-mono text-xs" />
               </label>
