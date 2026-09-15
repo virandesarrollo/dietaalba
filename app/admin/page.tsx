@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
 import { ViewNavigation } from '@/components/ViewNavigation';
 import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
@@ -81,7 +82,8 @@ export default function AdminPage() {
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(localDateString);
+  const [selectedDate, setSelectedDate] = useState(madridDateString);
+  const isHistoricalDay = isHistoricalDate(selectedDate);
   const [drafts, setDrafts] = useState<MealDrafts>(emptyDrafts);
   const [loading, setLoading] = useState(true);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -278,6 +280,7 @@ export default function AdminPage() {
   const selectedPatient = profiles.find((profile) => profile.id === selectedPatientId);
 
   function updateDraft(mealType: MealType, field: 'title' | 'ingredients', value: string) {
+    if (isHistoricalDay) return;
     setDrafts((current) => ({
       ...current,
       [mealType]: { ...current[mealType], [field]: value },
@@ -285,7 +288,7 @@ export default function AdminPage() {
   }
 
   async function savePlan() {
-    if (!selectedPatientId || importOpen) return;
+    if (!selectedPatientId || importOpen || isHistoricalDay) return;
 
     const patientSnapshot = selectedPatientId;
     const dateSnapshot = selectedDate;
@@ -441,7 +444,7 @@ export default function AdminPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedDate(localDateString())}
+                onClick={() => setSelectedDate(madridDateString())}
                 disabled={saving || importOpen}
                 className="rounded-2xl px-4 py-2.5 text-sm font-semibold text-rose-500 hover:bg-rose-50"
               >
@@ -494,7 +497,7 @@ export default function AdminPage() {
                     value={drafts[key].title}
                     onChange={(event) => updateDraft(key, 'title', event.target.value)}
                     placeholder={`Nombre del ${label.toLowerCase()}`}
-                    disabled={!selectedPatientId || saving || importOpen}
+                    disabled={!selectedPatientId || saving || importOpen || isHistoricalDay}
                     className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
                 </label>
@@ -505,7 +508,7 @@ export default function AdminPage() {
                     value={drafts[key].ingredients}
                     onChange={(event) => updateDraft(key, 'ingredients', event.target.value)}
                     placeholder="Cantidades, preparación y observaciones…"
-                    disabled={!selectedPatientId || saving || importOpen}
+                    disabled={!selectedPatientId || saving || importOpen || isHistoricalDay}
                     rows={5}
                     className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                   />
@@ -518,7 +521,7 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={() => setImportOpen(true)}
-              disabled={!selectedPatientId || saving || loadingPlan || importOpen}
+              disabled={!selectedPatientId || saving || loadingPlan || importOpen || isHistoricalDay}
               className="flex items-center gap-2 rounded-2xl bg-rose-100 px-6 py-3.5 text-sm font-bold text-rose-700 shadow-lg shadow-slate-200 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <FileUp size={18} /> Importar dieta

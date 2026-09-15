@@ -7,6 +7,7 @@ import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { ViewNavigation } from '@/components/ViewNavigation';
 import { AccountMenu } from '@/components/AccountMenu';
+import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
 import {
   createLatestRequestGuard,
   createMutationLock,
@@ -185,7 +186,8 @@ export default function Home() {
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
   const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
-  const [selectedDate, setSelectedDate] = useState<string>(formatDateString(new Date()));
+  const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
+  const isHistoricalDay = isHistoricalDate(selectedDate);
   const [meals, setMeals] = useState<Meal[]>([]);
   const [reviews, setReviews] = useState<Record<string, RecipeReview>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -412,6 +414,7 @@ export default function Home() {
   }, [recipes]);
 
   async function toggleComplete(mealId: string, currentStatus: boolean) {
+    if (isHistoricalDay) return;
     const updatedStatus = !currentStatus;
     setMeals(meals.map(m => m.id === mealId ? { ...m, is_completed: updatedStatus } : m));
 
@@ -440,6 +443,7 @@ export default function Home() {
 
   // Selección de receta para una comida libre existente
   const handleSelectRecipeForMeal = async (mealId: string, selectedRecipeTitle: string) => {
+    if (isHistoricalDay) return;
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
 
@@ -471,6 +475,7 @@ export default function Home() {
 
   // Alternar si una comida es libre o no
   const toggleMealIsFree = async (mealId: string, currentIsFree: boolean | undefined) => {
+    if (isHistoricalDay) return;
     const nextIsFree = !currentIsFree;
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
@@ -486,6 +491,7 @@ export default function Home() {
 
   // Añadir nueva comida libre en días vacíos o adicionales
   const handleAddFreeMeal = async () => {
+    if (isHistoricalDay) return;
     setSavingNewMeal(true);
     let title = `${newMealType.charAt(0) + newMealType.slice(1).toLowerCase()} Libre 🎉`;
     let ingredients = 'Comida libre';
@@ -532,6 +538,7 @@ export default function Home() {
   };
 
   const loadAvailableSourceDays = async () => {
+    if (isHistoricalDay) return;
     const userId = session?.user?.id;
     if (!userId) return;
 
@@ -571,6 +578,7 @@ export default function Home() {
 
   // Cargar o intercambiar el menú de otro día
   const handleApplyDayMenu = async () => {
+    if (isHistoricalDay || (loadDayMode === 'swap' && isHistoricalDate(selectedSourceDate))) return;
     const userId = session?.user?.id;
     if (!userId || !selectedSourceDate) return;
     setApplyingDayChange(true);
@@ -963,7 +971,8 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void loadAvailableSourceDays()}
-                className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60"
+                disabled={isHistoricalDay}
+                className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Cargar menú de otro día o intercambiar"
               >
                 <ArrowLeftRight size={12} />
@@ -971,7 +980,8 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setShowAddMealModal(true)}
-                className="text-[11px] text-pink-600 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-pink-200/60"
+                disabled={isHistoricalDay}
+                className="text-[11px] text-pink-600 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-pink-200/60 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Añadir comida libre"
               >
                 <Plus size={12} />
@@ -993,14 +1003,16 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
                 <button
                   onClick={() => void loadAvailableSourceDays()}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all"
+                  disabled={isHistoricalDay}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowLeftRight size={14} />
                   <span>Cargar menú de otro día</span>
                 </button>
                 <button
                   onClick={() => setShowAddMealModal(true)}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-2xl transition-all"
+                  disabled={isHistoricalDay}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-2xl transition-all disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={14} />
                   <span>Añadir comida suelta</span>
@@ -1034,6 +1046,7 @@ export default function Home() {
                           {/* Badge de comida libre con opción de alternar */}
                           <button
                             onClick={() => toggleMealIsFree(meal.id, meal.is_free_meal)}
+                            disabled={isHistoricalDay}
                             className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
                               meal.is_free_meal
                                 ? 'text-amber-700 bg-amber-100/70 border-amber-200 hover:bg-amber-100'
@@ -1068,6 +1081,7 @@ export default function Home() {
                               <select
                                 value={isSelectedRecipe ? meal.title : '__custom__'}
                                 onChange={(e) => handleSelectRecipeForMeal(meal.id, e.target.value)}
+                                disabled={isHistoricalDay}
                                 className="w-full text-xs appearance-none bg-amber-50/70 hover:bg-amber-50 border border-amber-200/90 text-slate-700 rounded-2xl py-2 pl-3 pr-8 font-medium focus:outline-none focus:ring-1 focus:ring-pink-300 focus:border-pink-300 transition-colors"
                               >
                                 <option value="__custom__">
@@ -1130,6 +1144,7 @@ export default function Home() {
 
                       <button
                         onClick={() => toggleComplete(meal.id, meal.is_completed)}
+                        disabled={isHistoricalDay}
                         className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
                           meal.is_completed
                             ? 'bg-pink-400 text-white shadow-md shadow-pink-200'
@@ -1413,7 +1428,7 @@ export default function Home() {
 
             <button
               onClick={handleAddFreeMeal}
-              disabled={savingNewMeal}
+              disabled={savingNewMeal || isHistoricalDay}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity"
             >
               {savingNewMeal ? 'Guardando...' : 'Añadir a este día 🎉'}
@@ -1542,7 +1557,7 @@ export default function Home() {
 
             <button
               onClick={handleApplyDayMenu}
-              disabled={applyingDayChange || loadingSourceDays || !selectedSourceDate}
+              disabled={applyingDayChange || loadingSourceDays || !selectedSourceDate || isHistoricalDay || (loadDayMode === 'swap' && isHistoricalDate(selectedSourceDate))}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
             >
               {applyingDayChange ? (
