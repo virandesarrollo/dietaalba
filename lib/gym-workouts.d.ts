@@ -37,6 +37,7 @@ export type WorkoutExerciseCard = {
 };
 
 export function validateWorkoutSet(set: WorkoutSet): WorkoutSet;
+export function adjustWorkoutValue(value: number, delta: number, minimum: number): number;
 export function toProgressPoints(rows: readonly WorkoutSetRow[]): ProgressPoint[];
 export function buildWorkoutExerciseCards(
   exercises: readonly WorkoutExerciseRow[],

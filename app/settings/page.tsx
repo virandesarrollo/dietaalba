@@ -26,6 +26,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [canAccessSettings, setCanAccessSettings] = useState(false);
   const [canChangeTheme, setCanChangeTheme] = useState(false);
+  const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
+  const [gymWeightStep, setGymWeightStep] = useState('1');
+  const [savingGymStep, setSavingGymStep] = useState(false);
+  const [gymStepMessage, setGymStepMessage] = useState<string | null>(null);
   const draftColors = { ...colors, ...colorEdits };
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
@@ -50,11 +54,28 @@ export default function SettingsPage() {
       }
       setCanAccessSettings(capabilities.canAccessSettings);
       setCanChangeTheme(capabilities.canChangeTheme);
+      setCanTrackGymWorkouts(capabilities.canTrackGymWorkouts);
+      if (capabilities.canTrackGymWorkouts) {
+        const { data: step } = await supabase.rpc('get_my_gym_weight_step');
+        if (active && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
+      }
       setLoading(false);
     }
     void checkAccess();
     return () => { active = false; };
   }, [router]);
+
+  async function saveGymWeightStep() {
+    const step = Number(gymWeightStep);
+    if (!Number.isFinite(step) || step <= 0 || step > 100) {
+      setGymStepMessage('Indica un valor entre 0,01 y 100 kg.');
+      return;
+    }
+    setSavingGymStep(true);
+    const { error: stepError } = await supabase.rpc('set_my_gym_weight_step', { p_step: step });
+    setGymStepMessage(stepError ? 'No se pudo guardar el incremento.' : 'Incremento guardado.');
+    setSavingGymStep(false);
+  }
 
   if (loading || !canAccessSettings) {
     return <main className="theme-page flex min-h-screen items-center justify-center text-sm theme-muted">Cargando ajustes…</main>;
@@ -81,9 +102,21 @@ export default function SettingsPage() {
 
       <div className="px-5 pt-7">
 
+        {canTrackGymWorkouts && (
+          <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
+            <h2 className="font-bold text-slate-800">Incremento de peso</h2>
+            <p className="theme-muted mt-1 text-xs">Cantidad que suman o restan los botones del entrenamiento.</p>
+            <div className="mt-4 flex items-center gap-3">
+              <input type="number" min="0.01" max="100" step="0.25" value={gymWeightStep} onChange={(event) => setGymWeightStep(event.target.value)} className="min-h-12 w-full rounded-2xl border px-4" aria-label="Incremento de peso en kg" />
+              <button type="button" disabled={savingGymStep} onClick={() => void saveGymWeightStep()} className="min-h-12 rounded-2xl bg-rose-500 px-5 font-semibold text-white disabled:opacity-50">Guardar</button>
+            </div>
+            {gymStepMessage && <p className="theme-muted mt-3 text-xs" role="status">{gymStepMessage}</p>}
+          </section>
+        )}
+
         {!canChangeTheme ? (
           <section className="theme-surface rounded-3xl p-7 shadow-sm">
-            <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>
+            {!canTrackGymWorkouts && <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>}
           </section>
         ) : (
           <div className="space-y-5">
