@@ -32,12 +32,16 @@ const ALL_ROLES: { code: RoleCode; label: string }[] = [
   { code: 'self_manager', label: 'Autogestión' },
   { code: 'nutritionist', label: 'Nutricionista' },
   { code: 'group_admin', label: 'Administrador de grupo' },
+  { code: 'gym_patient', label: 'Paciente de gimnasio' },
+  { code: 'gym_coach', label: 'Entrenador de gimnasio' },
 ];
 const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'rate_recipes', label: 'Valorar recetas' },
   { code: 'send_report', label: 'Enviar informe' },
   { code: 'access_settings', label: 'Acceso a ajustes' },
   { code: 'change_theme', label: 'Cambiar tema' },
+  { code: 'track_gym_workouts', label: 'Registrar entrenamientos' },
+  { code: 'manage_gym_workouts', label: 'Gestionar entrenamientos' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
