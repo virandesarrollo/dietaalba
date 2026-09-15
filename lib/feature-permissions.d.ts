@@ -1,4 +1,10 @@
-export type FeatureCode = 'rate_recipes' | 'send_report' | 'access_settings' | 'change_theme';
+export type FeatureCode =
+  | 'rate_recipes'
+  | 'send_report'
+  | 'access_settings'
+  | 'change_theme'
+  | 'track_gym_workouts'
+  | 'manage_gym_workouts';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
@@ -6,6 +12,8 @@ export type FeatureCapabilities = {
   canOpenNotes: boolean;
   canAccessSettings: boolean;
   canChangeTheme: boolean;
+  canTrackGymWorkouts: boolean;
+  canManageGymWorkouts: boolean;
 };
 
 export function deriveFeatureCapabilities(
