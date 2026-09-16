@@ -18,6 +18,10 @@ export function deriveMemberActions(
 };
 export function normalizeFeatureCodes(features: readonly string[] | null | undefined): FeatureCode[];
 export function toggleFeature(current: readonly FeatureCode[], feature: FeatureCode): FeatureCode[];
+export function groupManageableMembers<
+  TGroup extends { id: string; name: string },
+  TMember extends { membership_id: string; group_id: string; full_name: string | null; email: string },
+>(groups: readonly TGroup[], members: readonly TMember[]): Array<TGroup & { members: TMember[] }>;
 export function mutationSucceededAfterReload(reloaded: boolean): boolean;
 export function destructiveActionConfirmation(
   action: 'membership' | 'account' | 'sudo-grant' | 'sudo-revoke',

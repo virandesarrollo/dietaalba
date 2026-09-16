@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, type FeatureCode } from '@/lib/feature-permissions.js';
-import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
+import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, groupManageableMembers, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
 import { AdminNavigation } from '@/components/AdminNavigation';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
@@ -174,6 +174,7 @@ export default function UsersPage() {
 
   const allowedCodes = assignableRoles(isSudo);
   const allowedRoles = ALL_ROLES.filter(({ code }) => allowedCodes.includes(code));
+  const groupedMembers = useMemo(() => groupManageableMembers(groups, members), [groups, members]);
 
   function toggleRole(current: RoleCode[], role: RoleCode) {
     return current.includes(role) ? current.filter((value) => value !== role) : [...current, role];
@@ -350,7 +351,11 @@ export default function UsersPage() {
         </section>}
 
         <section><div className="mb-4 flex items-center gap-2"><Users className="text-rose-400" size={20} /><h2 className="font-bold text-slate-800">Miembros administrables</h2></div>
-          <div className="grid gap-4 lg:grid-cols-2">{members.map((member) => {
+          <div className="space-y-4">{groupedMembers.map((group) => <details key={group.id} className="rounded-3xl border border-rose-50 bg-white shadow-sm">
+            <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4 font-bold text-slate-800 sm:px-6">
+              <span>{group.name}</span><span className="rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-500">{group.members.length} usuarios</span>
+            </summary>
+            <div className="grid gap-4 border-t border-rose-50 p-4 lg:grid-cols-2">{group.members.map((member) => {
             const actions = deriveMemberActions(isSudo, currentProfile?.id ?? '', member.user_id, member.status, member.roles, member.is_active);
             const isSelf = member.user_id === currentProfile?.id;
             const busy = savingKey !== null;
@@ -365,7 +370,8 @@ export default function UsersPage() {
               {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
             </article>;
           })}</div>
-          {members.length === 0 && <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 shadow-sm">No hay miembros administrables.</p>}
+          </details>)}</div>
+          {groups.length === 0 && <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 shadow-sm">No hay grupos administrables.</p>}
         </section>
       </div>
     </main>
