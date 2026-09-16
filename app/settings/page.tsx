@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
+import { AppMobileNavigation } from '@/components/AppMobileNavigation';
+import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { validateColorPalette, type ThemeColorKey } from '@/lib/theme-preferences.js';
 import { supabase } from '@/lib/supabase';
+import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
 const COLOR_OPTIONS: Array<{ key: ThemeColorKey; label: string }> = [
   { key: 'background', label: 'Fondo de la aplicación' },
@@ -27,24 +30,37 @@ export default function SettingsPage() {
   const [canAccessSettings, setCanAccessSettings] = useState(false);
   const [canChangeTheme, setCanChangeTheme] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
+  const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
+  const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState('1');
   const [savingGymStep, setSavingGymStep] = useState(false);
   const [gymStepMessage, setGymStepMessage] = useState<string | null>(null);
+  const authGenerationRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
+  const authInitializedRef = useRef(false);
+  const requestGenerationRef = useRef(0);
   const draftColors = { ...colors, ...colorEdits };
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
+  const appNavigationViews = deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), { canAccessSettings, canTrackGymWorkouts, canManageGymWorkouts }));
 
   useEffect(() => {
     let active = true;
-    async function checkAccess() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        router.replace('/');
-        return;
-      }
+    let receivedAuthEvent = false;
+    const clearIdentityState = () => {
+      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false);
+      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false);
+    };
+    async function checkAccess(generation: number, userId: string, requestGeneration: number) {
+      const isCurrent = () => active && generation === authGenerationRef.current && userId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current;
+      try {
 
-      const { data, error: featuresError } = await supabase.rpc('get_my_features');
-      if (!active) return;
+      const [featuresResult, membershipResult] = await Promise.all([
+        supabase.rpc('get_my_features'),
+        supabase.from('group_memberships').select('user_roles(role_code)').eq('user_id', userId).eq('status', 'active').maybeSingle(),
+      ]);
+      const { data, error: featuresError } = featuresResult;
+      if (!isCurrent()) return;
       const capabilities = featuresError
         ? deriveFeatureCapabilities([])
         : deriveFeatureCapabilities(normalizeFeatureRows(data));
@@ -55,14 +71,26 @@ export default function SettingsPage() {
       setCanAccessSettings(capabilities.canAccessSettings);
       setCanChangeTheme(capabilities.canChangeTheme);
       setCanTrackGymWorkouts(capabilities.canTrackGymWorkouts);
+      setCanManageGymWorkouts(capabilities.canManageGymWorkouts);
+      const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
+      setNavigationRoles(membershipResult.error ? [] : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []));
       if (capabilities.canTrackGymWorkouts) {
         const { data: step } = await supabase.rpc('get_my_gym_weight_step');
-        if (active && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
+        if (isCurrent() && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
       }
-      setLoading(false);
+      } catch { if (isCurrent()) router.replace('/'); }
+      finally { if (isCurrent()) setLoading(false); }
     }
-    void checkAccess();
-    return () => { active = false; };
+    const applySession = (userId: string | null) => {
+      const transition = advanceAuthIdentity({ initialized: authInitializedRef.current, generation: authGenerationRef.current, userId: currentUserIdRef.current }, userId);
+      if (!transition.changed) return;
+      authInitializedRef.current = transition.state.initialized; authGenerationRef.current = transition.state.generation; currentUserIdRef.current = transition.state.userId;
+      const requestGeneration = ++requestGenerationRef.current; clearIdentityState(); setLoading(Boolean(userId));
+      if (userId) void checkAccess(transition.state.generation, userId, requestGeneration); else router.replace('/');
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { receivedAuthEvent = true; applySession(session?.user.id ?? null); });
+    supabase.auth.getSession().then(({ data }) => { if (active && !receivedAuthEvent) applySession(data.session?.user.id ?? null); }).catch(() => { if (active && !receivedAuthEvent) applySession(null); });
+    return () => { active = false; authGenerationRef.current += 1; currentUserIdRef.current = null; requestGenerationRef.current += 1; subscription.unsubscribe(); };
   }, [router]);
 
   async function saveGymWeightStep() {
@@ -72,9 +100,43 @@ export default function SettingsPage() {
       return;
     }
     setSavingGymStep(true);
-    const { error: stepError } = await supabase.rpc('set_my_gym_weight_step', { p_step: step });
-    setGymStepMessage(stepError ? 'No se pudo guardar el incremento.' : 'Incremento guardado.');
-    setSavingGymStep(false);
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    try {
+      const { error: stepError } = await supabase.rpc('set_my_gym_weight_step', { p_step: step });
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setGymStepMessage(stepError ? 'No se pudo guardar el incremento.' : 'Incremento guardado.');
+    } catch {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setGymStepMessage('No se pudo guardar el incremento.');
+    } finally {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setSavingGymStep(false);
+    }
+  }
+
+  async function changeTheme(nextTheme: 'alba' | 'dark') {
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    try {
+      await setTheme(nextTheme);
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setColorEdits({});
+    } catch { /* ThemeProvider exposes the actionable error. */ }
+  }
+
+  async function saveColors() {
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    try {
+      await setColors(draftColors);
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setColorEdits({});
+    } catch { /* ThemeProvider exposes the actionable error. */ }
+  }
+
+  async function restoreColors() {
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    try {
+      await resetColors();
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setColorEdits({});
+    } catch { /* ThemeProvider exposes the actionable error. */ }
   }
 
   if (loading || !canAccessSettings) {
@@ -82,7 +144,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="theme-page min-h-screen max-w-md mx-auto pb-10 font-sans">
+    <main className="theme-page min-h-screen max-w-md mx-auto pb-28 font-sans">
       <header className="rounded-b-[2.5rem] border-b border-pink-100/50 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 px-6 pb-7 pt-8 shadow-sm">
         <button
           type="button"
@@ -140,7 +202,7 @@ export default function SettingsPage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => { setColorEdits({}); void setTheme(option.value); }}
+                    onClick={() => void changeTheme(option.value)}
                     disabled={saving}
                     aria-pressed={selected}
                     className={`theme-border relative flex items-start gap-4 rounded-3xl border-2 p-5 text-left transition disabled:opacity-60 ${selected ? 'border-rose-400 ring-2 ring-rose-200' : ''}`}
@@ -193,7 +255,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 disabled={saving || !colorsChanged || !colorValidation.ok}
-                onClick={() => { void setColors(draftColors).then(() => setColorEdits({})); }}
+                onClick={() => void saveColors()}
                 className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
               >
                 Guardar colores
@@ -201,7 +263,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 disabled={saving}
-                onClick={() => { setColorEdits({}); void resetColors(); }}
+                onClick={() => void restoreColors()}
                 className="theme-border rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-40"
               >
                 Restaurar colores del tema
@@ -211,6 +273,7 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+      <AppMobileNavigation current="settings" resolvedViews={appNavigationViews} />
     </main>
   );
 }

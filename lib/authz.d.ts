@@ -31,3 +31,10 @@ export function deriveAvailableViews(
     canManageGymWorkouts?: boolean;
   },
 ): AppView[];
+
+export type PersonalAppView = Extract<AppView, 'patient' | 'training' | 'settings'>;
+export type AdminView = Extract<AppView, 'admin' | 'users' | 'gymAdmin'>;
+
+export function deriveAppViews(availableViews: readonly unknown[]): PersonalAppView[];
+
+export function deriveAdminViews(availableViews: readonly unknown[]): AdminView[];

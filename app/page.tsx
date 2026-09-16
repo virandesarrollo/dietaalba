@@ -2,13 +2,14 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { ViewNavigation } from '@/components/ViewNavigation';
+import { AppMobileNavigation } from '@/components/AppMobileNavigation';
+import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
+import { decideFocusTrapTarget } from '@/lib/gym-workouts.js';
 import {
   createLatestRequestGuard,
   createMutationLock,
@@ -28,7 +29,6 @@ import {
   X, 
   Copy, 
   CheckCheck, 
-  Calendar, 
   Plus, 
   Edit3, 
   Trash2, 
@@ -36,8 +36,7 @@ import {
   Heart,
   ChevronDown,
   ArrowLeftRight,
-  RotateCcw,
-  Dumbbell
+  RotateCcw
 } from 'lucide-react';
 
 type Meal = {
@@ -180,14 +179,15 @@ const formatDateString = (d: Date) => {
 };
 
 export default function Home() {
-  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [authGeneration, setAuthGeneration] = useState<number>(0);
   const [loadingSession, setLoadingSession] = useState<boolean>(true);
   const [loadingFeatures, setLoadingFeatures] = useState<boolean>(true);
   const [featureError, setFeatureError] = useState<string | null>(null);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackGymWorkouts } = featureCapabilities;
+  const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings } = featureCapabilities;
+  const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
@@ -215,6 +215,9 @@ export default function Home() {
 
   // Estado para modal de añadir comida libre
   const [showAddMealModal, setShowAddMealModal] = useState<boolean>(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const activeDialog = canRateRecipes && activeRecipe ? 'review' : showAddMealModal ? 'add-meal' : showLoadDayModal ? 'load-day' : null;
   const [newMealType, setNewMealType] = useState<string>('ALMUERZO');
   const [newMealRecipeTitle, setNewMealRecipeTitle] = useState<string>('');
   const [savingNewMeal, setSavingNewMeal] = useState<boolean>(false);
@@ -249,6 +252,7 @@ export default function Home() {
       setShowLoadDayModal(false);
       setLoadingSourceDays(false);
       setFeatureCapabilities(deriveFeatureCapabilities([]));
+      setNavigationRoles([]);
       setCurrentTab('plan');
       setActiveRecipe(null);
       setSavingReview(false);
@@ -293,6 +297,41 @@ export default function Home() {
     }
   }, [canOpenNotes]);
 
+  useEffect(() => {
+    if (!activeDialog) return;
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previouslyFocusedRef.current?.focus();
+    };
+  }, [activeDialog]);
+
+  function closeActiveDialog() {
+    if (mutatingReviews || savingNewMeal || applyingDayChange) return;
+    setActiveRecipe(null);
+    setShowAddMealModal(false);
+    setShowLoadDayModal(false);
+  }
+
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeActiveDialog();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const target = decideFocusTrapTarget(focusable, activeElement, event.shiftKey, activeElement === dialogRef.current);
+    if (target) {
+      event.preventDefault();
+      target.focus();
+    }
+  }
+
   async function fetchData(dateToFetch?: string) {
     const targetDate = dateToFetch || selectedDate;
     const userId = session?.user?.id;
@@ -310,13 +349,22 @@ export default function Home() {
 
     commit(() => setLoading(true));
 
-    const { data: featuresData, error: featuresError } = await supabase.rpc('get_my_features');
+    const [featuresResult, membershipResult] = await Promise.all([
+      supabase.rpc('get_my_features'),
+      supabase.from('group_memberships').select('user_roles(role_code)').eq('user_id', userId).eq('status', 'active').maybeSingle(),
+    ]);
+    const { data: featuresData, error: featuresError } = featuresResult;
     if (!requestGuard.isCurrent(request)) return;
     const nextCapabilities = featuresError
       ? deriveFeatureCapabilities([])
       : deriveFeatureCapabilities(normalizeFeatureRows(featuresData));
 
     commit(() => setFeatureCapabilities(nextCapabilities));
+    const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
+    const nextNavigationRoles = membershipResult.error
+      ? []
+      : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []);
+    commit(() => setNavigationRoles(nextNavigationRoles));
     commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
     commit(() => setLoadingFeatures(false));
 
@@ -849,8 +897,6 @@ export default function Home() {
   };
 
   const fullReportText = generateFullReport();
-  const notesCount = reviewedItems.filter(r => r.notes && r.notes.trim()).length;
-
   if (loadingSession || (session && loadingFeatures)) {
     return (
       <main className="theme-page min-h-screen flex items-center justify-center">
@@ -888,6 +934,7 @@ export default function Home() {
 
   return (
     <main className="theme-page min-h-screen text-slate-700 pb-28 max-w-md mx-auto relative font-sans">
+      <div inert={activeDialog ? true : undefined} aria-hidden={activeDialog ? true : undefined}>
       {featureError && (
         <p className="px-5 pt-3 text-center text-xs text-rose-500" role="alert">{featureError}</p>
       )}
@@ -922,9 +969,16 @@ export default function Home() {
           />
         </div>
 
-        <div className="mb-4">
-          <ViewNavigation current="patient" showSettings={false} />
-        </div>
+        {canOpenNotes && (
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-white/60 p-1" aria-label="Contenido de Mi dieta">
+            <button type="button" onClick={() => setCurrentTab('plan')} aria-pressed={currentTab === 'plan'} className={`min-h-12 rounded-xl px-3 text-sm font-semibold transition ${currentTab === 'plan' ? 'bg-white text-pink-500 shadow-sm' : 'text-slate-500'}`}>
+              Plan diario
+            </button>
+            <button type="button" onClick={() => setCurrentTab('notes')} aria-pressed={currentTab === 'notes'} className={`min-h-12 rounded-xl px-3 text-sm font-semibold transition ${currentTab === 'notes' ? 'bg-white text-pink-500 shadow-sm' : 'text-slate-500'}`}>
+              Ranking
+            </button>
+          </div>
+        )}
 
         {currentTab === 'plan' ? (
           <>
@@ -1315,13 +1369,15 @@ export default function Home() {
         </section>
       )}
 
+      </div>
+
       {/* MODAL PARA EDITAR NOTA / VALORACIÓN DE RECETA */}
       {canRateRecipes && activeRecipe && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4">
+          <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="review-dialog-title" onKeyDown={handleDialogKeyDown} className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-800 pr-4">{activeRecipe}</h3>
-              <button onClick={() => setActiveRecipe(null)} className="p-1 text-slate-400 hover:text-slate-600">
+              <h3 id="review-dialog-title" className="text-sm font-semibold text-slate-800 pr-4">{activeRecipe}</h3>
+              <button aria-label="Cerrar valoración" onClick={closeActiveDialog} className="p-1 text-slate-400 hover:text-slate-600">
                 <X size={18} />
               </button>
             </div>
@@ -1369,13 +1425,13 @@ export default function Home() {
       {/* MODAL PARA AÑADIR COMIDA LIBRE A UN DÍA */}
       {showAddMealModal && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4">
+          <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="add-meal-dialog-title" onKeyDown={handleDialogKeyDown} className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Sparkles size={16} className="text-amber-500" />
-                <h3 className="text-sm font-semibold text-slate-800">Añadir Comida Libre</h3>
+                <h3 id="add-meal-dialog-title" className="text-sm font-semibold text-slate-800">Añadir Comida Libre</h3>
               </div>
-              <button onClick={() => setShowAddMealModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
+              <button aria-label="Cerrar comida libre" onClick={closeActiveDialog} className="p-1 text-slate-400 hover:text-slate-600">
                 <X size={18} />
               </button>
             </div>
@@ -1443,20 +1499,20 @@ export default function Home() {
       {/* MODAL PARA CARGAR O INTERCAMBIAR MENÚ DE OTRO DÍA */}
       {showLoadDayModal && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4 max-h-[90vh] overflow-y-auto">
+          <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="load-day-dialog-title" onKeyDown={handleDialogKeyDown} className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-xl border border-pink-100 animate-in slide-in-from-bottom-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100">
                   <ArrowLeftRight size={16} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Menú de otro día</h3>
+                  <h3 id="load-day-dialog-title" className="text-sm font-semibold text-slate-800">Menú de otro día</h3>
                   <p className="text-[11px] text-slate-400">
                     Día actual: <span className="font-medium text-slate-600 capitalize">{parseDateString(selectedDate).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}</span>
                   </p>
                 </div>
               </div>
-              <button onClick={() => setShowLoadDayModal(false)} className="p-1 text-slate-400 hover:text-slate-600">
+              <button aria-label="Cerrar menú de otro día" onClick={closeActiveDialog} className="p-1 text-slate-400 hover:text-slate-600">
                 <X size={18} />
               </button>
             </div>
@@ -1576,48 +1632,9 @@ export default function Home() {
         </div>
       )}
 
-      {/* BARRA DE NAVEGACIÓN INFERIOR AESTHETIC */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/90 backdrop-blur-md border-t border-pink-100/70 py-2.5 px-6 flex items-center justify-around z-40 shadow-[0_-4px_20px_rgba(244,114,182,0.06)]">
-        <button
-          onClick={() => setCurrentTab('plan')}
-          className={`flex flex-col items-center gap-1 py-1 px-5 rounded-2xl transition-all ${
-            currentTab === 'plan' 
-              ? 'text-pink-500 font-semibold scale-105' 
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Calendar size={20} className={currentTab === 'plan' ? 'stroke-[2.5]' : ''} />
-          <span className="text-[11px]">Plan Diario</span>
-        </button>
-
-        {canTrackGymWorkouts && <button
-          type="button"
-          onClick={() => router.push('/training')}
-          className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-4 py-1 text-slate-400 hover:text-slate-600"
-        >
-          <Dumbbell size={20} />
-          <span className="text-[11px]">Entrenamiento</span>
-        </button>}
-
-        {canOpenNotes && <button
-          onClick={() => setCurrentTab('notes')}
-          className={`flex flex-col items-center gap-1 py-1 px-5 rounded-2xl transition-all relative ${
-            currentTab === 'notes' 
-              ? 'text-pink-500 font-semibold scale-105' 
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <div className="relative">
-            <MessageSquare size={20} className={currentTab === 'notes' ? 'stroke-[2.5]' : ''} />
-            {notesCount > 0 && (
-              <span className="absolute -top-1 -right-2.5 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-sm">
-                {notesCount}
-              </span>
-            )}
-          </div>
-          <span className="text-[11px]">Ranking</span>
-        </button>}
-      </nav>
+      <div inert={activeDialog ? true : undefined} aria-hidden={activeDialog ? true : undefined}>
+        <AppMobileNavigation current="patient" resolvedViews={appNavigationViews} />
+      </div>
     </main>
   );
 }

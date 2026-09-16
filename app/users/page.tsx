@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
-import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
-import { createMutationLock, type FeatureCode } from '@/lib/feature-permissions.js';
+import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
+import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, type FeatureCode } from '@/lib/feature-permissions.js';
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
-import { ViewNavigation } from '@/components/ViewNavigation';
+import { AdminNavigation } from '@/components/AdminNavigation';
+import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
 type Profile = { id: string; email: string; full_name: string | null; is_sudo: boolean };
 type Membership = { id: string };
@@ -62,62 +63,114 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  const [adminViews, setAdminViews] = useState<AdminView[]>([]);
   const mutationLockRef = useRef(createMutationLock());
+  const mountedRef = useRef(true);
+  const authGenerationRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
+  const authInitializedRef = useRef(false);
+  const requestGenerationRef = useRef(0);
 
-  const loadScopedData = useCallback(async () => {
-    const [groupsResult, membersResult] = await Promise.all([
-      supabase.rpc('list_manageable_groups'),
-      supabase.rpc('list_manageable_members'),
-    ]);
-    if (groupsResult.error || membersResult.error) {
-      setMessage({ kind: 'error', text: safeError(groupsResult.error ?? membersResult.error, 'No se pudieron cargar los usuarios.') });
+  const isAuthCurrent = useCallback((generation: number, userId: string | null) => (
+    mountedRef.current && generation === authGenerationRef.current
+    && userId !== null && userId === currentUserIdRef.current
+  ), []);
+
+  const loadScopedData = useCallback(async (generation: number, userId: string) => {
+    const requestGeneration = ++requestGenerationRef.current;
+    try {
+      const [groupsResult, membersResult] = await Promise.all([
+        supabase.rpc('list_manageable_groups'), supabase.rpc('list_manageable_members'),
+      ]);
+      if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return false;
+      if (groupsResult.error || membersResult.error) {
+        setMessage({ kind: 'error', text: safeError(groupsResult.error ?? membersResult.error, 'No se pudieron cargar los usuarios.') });
+        return false;
+      }
+      const nextGroups = (groupsResult.data ?? []) as Group[];
+      const nextMembers: Member[] = (membersResult.data ?? []).map((row: unknown) => {
+        const member = row as Omit<Member, 'features'> & { features?: string[] | null };
+        return { ...member, features: normalizeFeatureCodes(member.features) };
+      });
+      setGroups(nextGroups); setMembers(nextMembers);
+      setGroupId((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id ?? ''));
+      setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.roles])));
+      setDraftFeatures(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.features])));
+      return true;
+    } catch {
+      if (isAuthCurrent(generation, userId) && requestGeneration === requestGenerationRef.current) {
+        setMessage({ kind: 'error', text: 'No se pudieron cargar los usuarios.' });
+      }
       return false;
     }
-    const nextGroups = (groupsResult.data ?? []) as Group[];
-    const nextMembers: Member[] = (membersResult.data ?? []).map((row: unknown) => {
-      const member = row as Omit<Member, 'features'> & { features?: string[] | null };
-      return { ...member, features: normalizeFeatureCodes(member.features) };
-    });
-    setGroups(nextGroups);
-    setMembers(nextMembers);
-    setGroupId((current) => nextGroups.some((group) => group.id === current) ? current : (nextGroups[0]?.id ?? ''));
-    setDraftRoles(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.roles])));
-    setDraftFeatures(Object.fromEntries(nextMembers.map((member) => [member.membership_id, member.features])));
-    return true;
-  }, []);
+  }, [isAuthCurrent]);
 
   useEffect(() => {
-    let active = true;
-    async function initialize() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (!session) { router.replace('/'); return; }
+    mountedRef.current = true;
+    let receivedAuthEvent = false;
+    async function initialize(userId: string, generation: number) {
+      try {
       const [profileResult, membershipResult] = await Promise.all([
-        supabase.from('profiles').select('id, email, full_name, is_sudo').eq('id', session.user.id).maybeSingle(),
-        supabase.from('group_memberships').select('id').eq('user_id', session.user.id).eq('status', 'active').maybeSingle(),
+        supabase.from('profiles').select('id, email, full_name, is_sudo').eq('id', userId).maybeSingle(),
+        supabase.from('group_memberships').select('id').eq('user_id', userId).eq('status', 'active').maybeSingle(),
       ]);
       const profile = profileResult.data as Profile | null;
       const membership = membershipResult.data as Membership | null;
-      if (!active) return;
+      if (!isAuthCurrent(generation, userId)) return;
       if (profileResult.error || membershipResult.error || !profile || (!profile.is_sudo && !membership)) {
         setMessage({ kind: 'error', text: 'No se pudo verificar el acceso.' }); setLoading(false); return;
       }
-      const rolesResult = membership
-        ? await supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
-        : { data: [] as RoleRow[], error: null };
-      if (!active) return;
+      const [rolesResult, featuresResult] = await Promise.all([
+        membership
+          ? supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
+          : Promise.resolve({ data: [] as RoleRow[], error: null }),
+        supabase.rpc('get_my_features'),
+      ]);
+      if (!isAuthCurrent(generation, userId)) return;
       if (rolesResult.error) { setMessage({ kind: 'error', text: 'No se pudo verificar el acceso.' }); setLoading(false); return; }
       const roles = (rolesResult.data ?? []).map((row) => (row as RoleRow).role_code);
       const capabilities = deriveCapabilities(profile.is_sudo, roles);
+      const featureCapabilities = deriveFeatureCapabilities(
+        featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data),
+      );
       if (!(capabilities.canManageAllUsers || capabilities.canManageGroupUsers)) { router.replace('/'); return; }
       setCurrentProfile(profile);
       setIsSudo(capabilities.canManageAllUsers);
-      await loadScopedData();
-      if (active) setLoading(false);
+      setAdminViews(deriveAdminViews(deriveAvailableViews(capabilities, {
+        canManageGymWorkouts: featureCapabilities.canManageGymWorkouts,
+      })));
+      await loadScopedData(generation, userId);
+      } catch {
+        if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo verificar el acceso.' });
+      } finally {
+        if (isAuthCurrent(generation, userId)) setLoading(false);
+      }
     }
-    void initialize();
-    return () => { active = false; };
-  }, [loadScopedData, router]);
+    const applySession = (userId: string | null) => {
+      const transition = advanceAuthIdentity({ initialized: authInitializedRef.current, generation: authGenerationRef.current, userId: currentUserIdRef.current }, userId);
+      if (!transition.changed) return;
+      authInitializedRef.current = transition.state.initialized;
+      authGenerationRef.current = transition.state.generation;
+      currentUserIdRef.current = transition.state.userId;
+      requestGenerationRef.current += 1;
+      mutationLockRef.current = createMutationLock();
+      setCurrentProfile(null); setMembers([]); setGroups([]); setIsSudo(false); setAdminViews([]);
+      setEmail(''); setGroupId(''); setInviteRoles(['patient']); setInviteFeatures([]);
+      setDraftRoles({}); setDraftFeatures({}); setSavingKey(null); setMessage(null); setLoading(Boolean(userId));
+      if (!userId) { router.replace('/'); return; }
+      void initialize(userId, transition.state.generation);
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      receivedAuthEvent = true; applySession(session?.user.id ?? null);
+    });
+    supabase.auth.getSession()
+      .then(({ data }) => { if (mountedRef.current && !receivedAuthEvent) applySession(data.session?.user.id ?? null); })
+      .catch(() => { if (mountedRef.current && !receivedAuthEvent) applySession(null); });
+    return () => {
+      mountedRef.current = false; authGenerationRef.current += 1; currentUserIdRef.current = null;
+      requestGenerationRef.current += 1; subscription.unsubscribe();
+    };
+  }, [isAuthCurrent, loadScopedData, router]);
 
   const allowedCodes = assignableRoles(isSudo);
   const allowedRoles = ALL_ROLES.filter(({ code }) => allowedCodes.includes(code));
@@ -128,19 +181,24 @@ export default function UsersPage() {
 
   async function invite() {
     if (!email.trim() || !groupId || inviteRoles.length === 0) return;
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey('invite'); setMessage(null);
       const { error } = await supabase.rpc('invite_group_member_with_features', { p_group_id: groupId, p_email: email, p_roles: inviteRoles, p_features: inviteFeatures });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo crear la invitación.') });
       else {
         setEmail(''); setInviteRoles(['patient']); setInviteFeatures([]);
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Invitación creada.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Invitación creada.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo crear la invitación.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
@@ -148,18 +206,23 @@ export default function UsersPage() {
   async function saveFeatures(member: Member) {
     const features = draftFeatures[member.membership_id] ?? [];
     if (features.length === 0 && !window.confirm(`¿Retirar todas las funcionalidades de ${member.full_name || member.email} en ${member.group_name}?`)) return;
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey(member.membership_id); setMessage(null);
       const { error } = await supabase.rpc('set_member_features', { p_membership_id: member.membership_id, p_features: features });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar las funcionalidades.') });
       else {
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Funcionalidades actualizadas.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Funcionalidades actualizadas.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudieron actualizar las funcionalidades.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
@@ -168,36 +231,46 @@ export default function UsersPage() {
     const allowedCodes = new Set(allowedRoles.map(({ code }) => code));
     const roles = (draftRoles[member.membership_id] ?? []).filter((role) => allowedCodes.has(role));
     if (roles.length === 0) return;
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey(member.membership_id); setMessage(null);
       const { error } = await supabase.rpc('set_member_roles', { p_membership_id: member.membership_id, p_roles: roles });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudieron actualizar los roles.') });
       else {
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Roles actualizados.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Roles actualizados.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudieron actualizar los roles.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
 
   async function disableMembership(member: Member) {
     if (!window.confirm(destructiveActionConfirmation('membership', member.full_name, member.email, member.group_name))) return;
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey(member.membership_id); setMessage(null);
       const { error } = await supabase.rpc('disable_membership', { p_membership_id: member.membership_id });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo desactivar la membresía.') });
       else {
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Membresía desactivada.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: 'Membresía desactivada.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo desactivar la membresía.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
@@ -207,18 +280,23 @@ export default function UsersPage() {
     if (!active) {
       if (!window.confirm(destructiveActionConfirmation('account', member.full_name, member.email, member.group_name))) return;
     }
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey(member.membership_id); setMessage(null);
       const { error } = await supabase.rpc('set_user_active', { p_user_id: member.user_id, p_is_active: active });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el estado de la cuenta.') });
       else {
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: active ? 'Cuenta activada.' : 'Cuenta desactivada.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: active ? 'Cuenta activada.' : 'Cuenta desactivada.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo cambiar el estado de la cuenta.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
@@ -227,18 +305,23 @@ export default function UsersPage() {
     if (!member.user_id) return;
     const action = sudo ? 'sudo-grant' : 'sudo-revoke';
     if (!window.confirm(destructiveActionConfirmation(action, member.full_name, member.email, member.group_name))) return;
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
     const mutationLock = mutationLockRef.current;
     if (!mutationLock.tryAcquire()) return;
     try {
       setSavingKey(member.membership_id); setMessage(null);
       const { error } = await supabase.rpc('set_user_sudo', { target_user: member.user_id, sudo });
+      if (!isAuthCurrent(generation, userId)) return;
       if (error) setMessage({ kind: 'error', text: safeError(error, 'No se pudo cambiar el acceso sudo.') });
       else {
-        const reloaded = await loadScopedData();
-        if (mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: sudo ? 'Acceso sudo concedido.' : 'Acceso sudo retirado.' });
+        const reloaded = await loadScopedData(generation, userId);
+        if (isAuthCurrent(generation, userId) && mutationSucceededAfterReload(reloaded)) setMessage({ kind: 'success', text: sudo ? 'Acceso sudo concedido.' : 'Acceso sudo retirado.' });
       }
+    } catch { if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo cambiar el acceso sudo.' });
     } finally {
-      setSavingKey(null);
+      if (isAuthCurrent(generation, userId)) setSavingKey(null);
       mutationLock.release();
     }
   }
@@ -250,7 +333,7 @@ export default function UsersPage() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-sm font-semibold text-rose-400">Administración</p><h1 className="text-3xl font-bold text-slate-800">Usuarios y permisos</h1></div>
-          <ViewNavigation current="users" />
+          <AdminNavigation current="users" resolvedViews={adminViews} />
         </header>
 
         {message && <p role="status" className={`mb-5 rounded-2xl border p-4 text-sm ${message.kind === 'error' ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>{message.text}</p>}

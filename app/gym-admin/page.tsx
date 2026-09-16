@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowDown, ArrowLeft, ArrowUp, Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
-import { ViewNavigation } from '@/components/ViewNavigation';
+import { ArrowDown, ArrowUp, Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
+import { AdminNavigation } from '@/components/AdminNavigation';
+import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock } from '@/lib/feature-permissions.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import {
@@ -19,7 +20,7 @@ import {
 import { supabase } from '@/lib/supabase';
 
 type Message = { kind: 'error' | 'success'; text: string };
-type RoleRow = { role_code: string };
+type RoleRow = { role_code: RoleCode };
 
 function mutationError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'Ya no tienes permiso para gestionar el catálogo.' : fallback;
@@ -42,6 +43,7 @@ export default function GymAdminPage() {
   const [editingExerciseCode, setEditingExerciseCode] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  const [adminViews, setAdminViews] = useState<AdminView[]>([]);
   const mutationLockRef = useRef(createMutationLock());
   const mountedRef = useRef(true);
   const requestGenerationRef = useRef(0);
@@ -89,11 +91,11 @@ export default function GymAdminPage() {
     async function initialize(userId: string, generation: number) {
       try {
         const [profileResult, membershipResult] = await Promise.all([
-          supabase.from('profiles').select('is_active').eq('id', userId).maybeSingle(),
+          supabase.from('profiles').select('is_active, is_sudo').eq('id', userId).maybeSingle(),
           supabase.from('group_memberships').select('id').eq('user_id', userId).eq('status', 'active').maybeSingle(),
         ]);
         if (!isAuthCurrent(generation, userId)) return;
-        const profile = profileResult.data as { is_active?: boolean } | null;
+        const profile = profileResult.data as { is_active?: boolean; is_sudo?: boolean } | null;
         const membership = membershipResult.data as { id: string } | null;
         if (profileResult.error || membershipResult.error || profile?.is_active !== true || !membership) {
           router.replace('/'); return;
@@ -103,11 +105,13 @@ export default function GymAdminPage() {
           supabase.rpc('get_my_features'),
         ]);
         if (!isAuthCurrent(generation, userId)) return;
-        const isGymCoach = !rolesResult.error && (rolesResult.data ?? [])
-          .some((row) => (row as RoleRow).role_code === 'gym_coach');
-        const canManageGymWorkouts = !featuresResult.error
-          && deriveFeatureCapabilities(normalizeFeatureRows(featuresResult.data)).canManageGymWorkouts;
-        if (!isGymCoach || !canManageGymWorkouts) { router.replace('/'); return; }
+        const roles = rolesResult.error ? [] : (rolesResult.data ?? []).map((row) => (row as RoleRow).role_code);
+        const capabilities = deriveCapabilities(Boolean(profile.is_sudo), roles);
+        const featureCapabilities = deriveFeatureCapabilities(
+          featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data),
+        );
+        if (!capabilities.isGymCoach || !featureCapabilities.canManageGymWorkouts) { router.replace('/'); return; }
+        setAdminViews(deriveAdminViews(deriveAvailableViews(capabilities, featureCapabilities)));
         setAuthorized(true);
         await loadCatalog(generation, userId);
       } catch {
@@ -125,6 +129,7 @@ export default function GymAdminPage() {
       requestGenerationRef.current += 1;
       mutationLockRef.current = createMutationLock();
       setAuthorized(false);
+      setAdminViews([]);
       setGroups([]);
       setExercises([]);
       setSavingKey(null);
@@ -299,20 +304,18 @@ export default function GymAdminPage() {
   if (loading || !authorized) return <main className="theme-page flex min-h-screen items-center justify-center text-sm theme-muted">Cargando catálogo…</main>;
 
   return (
-    <main className="theme-page mx-auto min-h-screen max-w-md pb-12 font-sans">
-      <header className="rounded-b-[2.5rem] border-b border-pink-100/50 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 px-5 pb-7 pt-7 shadow-sm">
-        <button type="button" onClick={() => router.push('/')} disabled={busy} aria-label="Volver a mi dieta" className="mb-5 flex min-h-12 items-center gap-2 rounded-full bg-white/70 px-4 text-sm font-semibold text-pink-500 disabled:opacity-50">
-          <ArrowLeft size={18} /> Mi dieta
-        </button>
-        <div className="flex items-center gap-2 text-pink-500"><Dumbbell size={19} /><p className="text-xs font-semibold uppercase tracking-widest">Catálogo global</p></div>
-        <h1 className="mt-2 text-3xl font-bold text-slate-800">Administrar gimnasio</h1>
-        <div className="mt-5"><ViewNavigation current="gymAdmin" /></div>
+    <main className="theme-page min-h-screen px-4 py-7 font-sans sm:px-8">
+      <div className="mx-auto max-w-6xl">
+      <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
+        <div><div className="flex items-center gap-2 text-pink-500"><Dumbbell size={19} /><p className="text-xs font-semibold uppercase tracking-widest">Catálogo global</p></div><h1 className="mt-2 text-3xl font-bold text-slate-800">Administrar gimnasio</h1></div>
+        <AdminNavigation current="gymAdmin" resolvedViews={adminViews} />
       </header>
 
-      <div className="space-y-5 px-4 pt-6">
+      <div className="space-y-5">
         {savingKey && <p role="status" className="rounded-2xl bg-blue-50 p-3 text-sm text-blue-700">Guardando cambios…</p>}
         {message && <p role={message.kind === 'error' ? 'alert' : 'status'} className={`rounded-2xl p-3 text-sm ${message.kind === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>{message.text}</p>}
 
+        <div className="grid gap-5 lg:grid-cols-2">
         <section className="theme-surface rounded-3xl p-5 shadow-sm">
           <h2 className="text-lg font-bold text-slate-800">Nuevo grupo</h2>
           <div className="mt-3 flex gap-2">
@@ -332,6 +335,7 @@ export default function GymAdminPage() {
             <button type="button" onClick={() => void saveExercise()} disabled={busy} className="min-h-12 flex-1 rounded-2xl bg-pink-500 px-4 font-semibold text-white disabled:opacity-50">Crear ejercicio</button>
           </div>
         </section>
+        </div>
 
         <label className="theme-surface flex min-h-12 items-center justify-between rounded-2xl px-4 text-sm font-semibold shadow-sm">
           Mostrar inactivos
@@ -387,6 +391,7 @@ export default function GymAdminPage() {
             </details>
           ))}
         </section>
+      </div>
       </div>
     </main>
   );

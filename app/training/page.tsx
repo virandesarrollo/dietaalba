@@ -2,11 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, ChevronLeft, ChevronRight, Dumbbell, Plus, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
+import { AppMobileNavigation } from '@/components/AppMobileNavigation';
+import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type PersonalAppView, type RoleCode } from '@/lib/authz.js';
 import { adjustWorkoutValue, buildWorkoutExerciseCards, decideFocusTrapTarget, groupAvailableExercises, validateWorkoutSet } from '@/lib/gym-workouts.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { madridDateString } from '@/lib/historical-date.js';
 import { supabase } from '@/lib/supabase';
+import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
 type Membership = { id: string; group_id: string };
 type ExerciseGroup = { code: string; name: string; sort_order: number; is_active: boolean };
@@ -76,11 +79,18 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [appNavigationViews, setAppNavigationViews] = useState<PersonalAppView[]>([]);
   const pickerDialogRef = useRef<HTMLElement>(null);
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const pickerWasOpen = useRef(false);
   const mutationLockRef = useRef(false);
+  const mutationTokenRef = useRef(0);
   const workoutGenerationRef = useRef(0);
+  const authGenerationRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
+  const authInitializedRef = useRef(false);
+  const requestGenerationRef = useRef(0);
+  const [authIdentity, setAuthIdentity] = useState<{ generation: number; userId: string } | null>(null);
   const historical = workoutDate < today;
 
   useEffect(() => {
@@ -111,48 +121,74 @@ export default function TrainingPage() {
   }, [showPicker]);
 
   useEffect(() => {
-    let current = true;
+    let active = true;
+    let receivedAuthEvent = false;
+    const clearIdentityState = () => {
+      setMembership(null); setUserId(''); setCatalog([]); setDailyExercises([]); setSets([]);
+      setDraftExerciseCode(null); setEditingSetId(null); setAppNavigationViews([]); setFeedback(''); setShowPicker(false);
+      mutationTokenRef.current += 1; mutationLockRef.current = false; setSaving(false);
+    };
+    const applySession = (nextUserId: string | null) => {
+      const transition = advanceAuthIdentity({ initialized: authInitializedRef.current, generation: authGenerationRef.current, userId: currentUserIdRef.current }, nextUserId);
+      if (!transition.changed) return;
+      authInitializedRef.current = transition.state.initialized;
+      authGenerationRef.current = transition.state.generation;
+      currentUserIdRef.current = transition.state.userId;
+      requestGenerationRef.current += 1; workoutGenerationRef.current += 1;
+      clearIdentityState(); setLoading(Boolean(nextUserId));
+      setAuthIdentity(nextUserId ? { generation: transition.state.generation, userId: nextUserId } : null);
+      if (!nextUserId) router.replace('/');
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { receivedAuthEvent = true; applySession(session?.user.id ?? null); });
+    supabase.auth.getSession().then(({ data }) => { if (active && !receivedAuthEvent) applySession(data.session?.user.id ?? null); }).catch(() => { if (active && !receivedAuthEvent) applySession(null); });
+    return () => { active = false; authGenerationRef.current += 1; currentUserIdRef.current = null; requestGenerationRef.current += 1; subscription.unsubscribe(); };
+  }, [router]);
+
+  useEffect(() => {
+    if (!authIdentity) return;
+    const { generation, userId: activeUserId } = authIdentity;
+    const requestGeneration = ++requestGenerationRef.current;
+    const requestDate = workoutDate;
+    const isCurrent = () => generation === authGenerationRef.current && activeUserId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current && requestDate === workoutDate;
     async function load() {
       setLoading(true);
       setShowPicker(false);
       setDraftExerciseCode(null);
       setEditingSetId(null);
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace('/');
-        return;
-      }
-      const membershipResult = await supabase.from('group_memberships').select('id, group_id').eq('user_id', session.user.id).eq('status', 'active').maybeSingle();
+      try {
+      const membershipResult = await supabase.from('group_memberships').select('id, group_id').eq('user_id', activeUserId).eq('status', 'active').maybeSingle();
+      if (!isCurrent()) return;
       const activeMembership = membershipResult.data as Membership | null;
       if (!activeMembership) {
         router.replace('/');
         return;
       }
       const [rolesResult, featuresResult] = await Promise.all([supabase.from('user_roles').select('role_code').eq('membership_id', activeMembership.id), supabase.rpc('get_my_features')]);
-      const isPatient = (rolesResult.data ?? []).some((row) => (row as RoleRow).role_code === 'gym_patient');
-      const canTrackGymWorkouts = deriveFeatureCapabilities(featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data)).canTrackGymWorkouts;
+      if (!isCurrent()) return;
+      const roles = (rolesResult.data ?? []).map((row) => (row as RoleRow).role_code as RoleCode);
+      const isPatient = roles.includes('gym_patient');
+      const featureCapabilities = deriveFeatureCapabilities(featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data));
+      const canTrackGymWorkouts = featureCapabilities.canTrackGymWorkouts;
       if (!isPatient || !canTrackGymWorkouts) {
         router.replace('/');
         return;
       }
-      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)').eq('is_active', true).eq('gym_exercise_groups.is_active', true), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', session.user.id).eq('workout_date', workoutDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', session.user.id).eq('workout_date', workoutDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
-      if (!current) return;
+      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)').eq('is_active', true).eq('gym_exercise_groups.is_active', true), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', activeUserId).eq('workout_date', requestDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', activeUserId).eq('workout_date', requestDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
+      if (!isCurrent()) return;
+      setAppNavigationViews(deriveAppViews(deriveAvailableViews(deriveCapabilities(false, roles), featureCapabilities)));
       setMembership(activeMembership);
-      setUserId(session.user.id);
+      setUserId(activeUserId);
       setCatalog((catalogResult.data ?? []) as Exercise[]);
       setDailyExercises((dailyResult.data ?? []) as DailyExercise[]);
       setSets((setsResult.data ?? []) as WorkoutSet[]);
       if (typeof stepResult.data === 'number' && stepResult.data > 0) setGymWeightStep(stepResult.data);
       setFeedback(catalogResult.error || dailyResult.error || setsResult.error ? 'No se pudo cargar el entrenamiento.' : '');
-      setLoading(false);
+      } catch { if (isCurrent()) setFeedback('No se pudo cargar el entrenamiento.'); }
+      finally { if (isCurrent()) setLoading(false); }
     }
     void load();
-    return () => {
-      current = false;
-    };
-  }, [router, workoutDate]);
+    return () => { requestGenerationRef.current += 1; };
+  }, [authIdentity, router, workoutDate]);
 
   const cards = useMemo(() => buildWorkoutExerciseCards(dailyExercises, sets), [dailyExercises, sets]);
   const availableExerciseGroups = useMemo(
@@ -173,6 +209,9 @@ export default function TrainingPage() {
   async function addExercise(exercise: Pick<Exercise, 'code' | 'name'>) {
     if (!membership || historical || mutationLockRef.current) return;
     mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
     const mutationGeneration = workoutGenerationRef.current;
     const mutationDate = workoutDate;
     setSaving(true);
@@ -187,15 +226,14 @@ export default function TrainingPage() {
         })
         .select('id, exercise_code, exercise_name_snapshot')
         .single();
-      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback('No se pudo añadir el ejercicio.');
       else {
         setDailyExercises((value) => [...value, result.data as DailyExercise]);
         setShowPicker(false);
       }
     } finally {
-      mutationLockRef.current = false;
-      setSaving(false);
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
     }
   }
 
@@ -223,6 +261,9 @@ export default function TrainingPage() {
     event.preventDefault();
     if (!membership || historical || mutationLockRef.current) return;
     mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
     const mutationGeneration = workoutGenerationRef.current;
     const mutationDate = workoutDate;
     try {
@@ -244,7 +285,7 @@ export default function TrainingPage() {
             reps: validated.reps,
           });
       const result = await query.select('id, exercise_code, weight_kg, reps, created_at').single();
-      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback(editingSetId ? 'No se pudo actualizar la serie.' : 'No se pudo guardar la serie.');
       else {
         const saved = result.data as WorkoutSet;
@@ -254,8 +295,7 @@ export default function TrainingPage() {
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Revisa la serie.');
     } finally {
-      mutationLockRef.current = false;
-      setSaving(false);
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
     }
   }
 
@@ -263,6 +303,9 @@ export default function TrainingPage() {
     if (!membership || historical || mutationLockRef.current) return;
     if (!window.confirm('¿Eliminar esta serie?')) return;
     mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
     const mutationGeneration = workoutGenerationRef.current;
     const mutationDate = workoutDate;
     setSaving(true);
@@ -278,7 +321,7 @@ export default function TrainingPage() {
         .eq('exercise_code', set.exercise_code)
         .select('id')
         .maybeSingle();
-      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback('No se pudo eliminar la serie.');
       else {
         const deletedId = result.data.id;
@@ -286,8 +329,7 @@ export default function TrainingPage() {
         if (editingSetId === set.id) cancelDraft();
       }
     } finally {
-      mutationLockRef.current = false;
-      setSaving(false);
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
     }
   }
 
@@ -295,13 +337,16 @@ export default function TrainingPage() {
     if (!membership || historical || mutationLockRef.current) return;
     if (!window.confirm('¿Quitar este ejercicio y todas sus series?')) return;
     mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
     const mutationGeneration = workoutGenerationRef.current;
     const mutationDate = workoutDate;
     setSaving(true);
     try {
       setFeedback('');
       const result = await supabase.rpc('delete_my_gym_workout_exercise', { p_exercise_id: exercise.id });
-      if (mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error) setFeedback('No se pudo quitar el ejercicio.');
       else {
         setDailyExercises((current) => current.filter((item) => item.id !== exercise.id));
@@ -309,8 +354,7 @@ export default function TrainingPage() {
         if (draftExerciseCode === exercise.exercise_code) cancelDraft();
       }
     } finally {
-      mutationLockRef.current = false;
-      setSaving(false);
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
     }
   }
 
@@ -336,7 +380,7 @@ export default function TrainingPage() {
 
   if (loading) return <main className="theme-page flex min-h-screen items-center justify-center">Cargando entrenamiento…</main>;
   return (
-    <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-24">
+    <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-28">
       <header className="flex items-center justify-between">
         <button type="button" aria-label="Día anterior" className="min-h-12 min-w-12" disabled={saving || workoutDate <= today} onClick={() => changeWorkoutDate(-1)}>
           <ChevronLeft />
@@ -453,16 +497,7 @@ export default function TrainingPage() {
           </section>
         </div>
       )}
-      <nav className="fixed bottom-0 left-0 right-0 mx-auto flex max-w-md items-center justify-around bg-white/90 backdrop-blur-md border-t border-pink-100/70 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] px-6 z-40 shadow-[0_-4px_20px_rgba(244,114,182,0.06)]">
-        <button type="button" onClick={() => router.push('/')} className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-5 py-1 text-slate-400 transition-all hover:text-slate-600">
-          <Calendar size={20} aria-hidden="true" />
-          <span className="text-[11px]">Plan Diario</span>
-        </button>
-        <span aria-current="page" className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl px-5 py-1 text-pink-500 font-semibold scale-105">
-          <Dumbbell size={20} strokeWidth={2.5} aria-hidden="true" />
-          <span className="text-[11px]">Entrenamiento</span>
-        </span>
-      </nav>
+      <AppMobileNavigation current="training" resolvedViews={appNavigationViews} />
     </main>
   );
 }

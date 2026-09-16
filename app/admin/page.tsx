@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -14,8 +14,10 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
-import { ViewNavigation } from '@/components/ViewNavigation';
-import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
+import { AdminNavigation } from '@/components/AdminNavigation';
+import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
+import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
+import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
 import { DietImportWizard } from '@/components/DietImportWizard';
 
@@ -92,37 +94,41 @@ export default function AdminPage() {
   const [importRefreshKey, setImportRefreshKey] = useState(0);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [adminViews, setAdminViews] = useState<AdminView[]>([]);
   const selectionRef = useRef({ patientId: selectedPatientId, date: selectedDate });
+  const mountedRef = useRef(true);
+  const authGenerationRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
+  const authInitializedRef = useRef(false);
+  const requestGenerationRef = useRef(0);
+  const mutationLockRef = useRef(createMutationLock());
+
+  const isAuthCurrent = useCallback((generation: number, userId: string | null) => (
+    mountedRef.current
+    && generation === authGenerationRef.current
+    && userId !== null
+    && userId === currentUserIdRef.current
+  ), []);
 
   useEffect(() => {
     selectionRef.current = { patientId: selectedPatientId, date: selectedDate };
   }, [selectedDate, selectedPatientId]);
 
   useEffect(() => {
-    let active = true;
-    let sessionInitialized = false;
-
-    async function checkAccess() {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const session = sessionData.session;
-
-      if (sessionError || !session) {
-        if (!active) return;
-        sessionInitialized = true;
-        router.push('/');
-        return;
-      }
-
+    mountedRef.current = true;
+    let receivedAuthEvent = false;
+    async function initialize(userId: string, generation: number) {
+      try {
       const [profileResult, membershipResult] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, email, full_name, is_sudo')
-          .eq('id', session.user.id)
+          .eq('id', userId)
           .maybeSingle(),
         supabase
           .from('group_memberships')
           .select('id')
-          .eq('user_id', session.user.id)
+          .eq('user_id', userId)
           .eq('status', 'active')
           .maybeSingle(),
       ]);
@@ -130,50 +136,46 @@ export default function AdminPage() {
       const ownProfile = profileResult.data as Profile | null;
       const membership = membershipResult.data as Membership | null;
       const accessLookupError = profileResult.error ?? membershipResult.error;
-
+      if (!isAuthCurrent(generation, userId)) return;
       if (accessLookupError) {
-        if (!active) return;
-        sessionInitialized = true;
         setAccessError(
           accessLookupError.code === '42501'
             ? 'No tienes permiso para consultar los datos de acceso.'
             : 'No se pudo verificar el acceso. Inténtalo de nuevo en unos minutos.',
         );
-        setLoading(false);
         return;
       }
 
       if (!ownProfile || !membership) {
-        if (!active) return;
-        sessionInitialized = true;
-        router.push('/');
+        router.replace('/');
         return;
       }
 
-      const { data: roleRows, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('role_code')
-        .eq('membership_id', membership.id);
+      const [rolesResult, featuresResult] = await Promise.all([
+        supabase.from('user_roles').select('role_code').eq('membership_id', membership.id),
+        supabase.rpc('get_my_features'),
+      ]);
+      const { data: roleRows, error: rolesError } = rolesResult;
 
-      if (!active) return;
+      if (!isAuthCurrent(generation, userId)) return;
 
       if (rolesError) {
-        sessionInitialized = true;
         setAccessError(
           rolesError.code === '42501'
             ? 'No tienes permiso para consultar los roles de acceso.'
             : 'No se pudo verificar el acceso. Inténtalo de nuevo en unos minutos.',
         );
-        setLoading(false);
         return;
       }
 
       const roles = (roleRows ?? []).map((row) => (row as UserRole).role_code);
       const capabilities = deriveCapabilities(Boolean(ownProfile.is_sudo), roles);
+      const featureCapabilities = deriveFeatureCapabilities(
+        featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data),
+      );
 
       if (!capabilities.canOpenDietAdmin) {
-        sessionInitialized = true;
-        router.push('/');
+        router.replace('/');
         return;
       }
 
@@ -187,10 +189,11 @@ export default function AdminPage() {
         availableProfiles = [ownProfile];
       }
 
-      if (!active) return;
-
-      sessionInitialized = true;
+      if (!isAuthCurrent(generation, userId)) return;
       setCurrentProfile(ownProfile);
+      setAdminViews(deriveAdminViews(deriveAvailableViews(capabilities, {
+        canManageGymWorkouts: featureCapabilities.canManageGymWorkouts,
+      })));
       if (patientsError) {
         setMessage({
           type: 'error',
@@ -207,48 +210,67 @@ export default function AdminPage() {
             : (availableProfiles[0]?.id ?? ''),
         );
       }
-      setLoading(false);
-    }
-
-    void checkAccess();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (sessionInitialized && !session) {
-        router.push('/');
+      } catch {
+        if (isAuthCurrent(generation, userId)) setAccessError('No se pudo verificar el acceso. Inténtalo de nuevo en unos minutos.');
+      } finally {
+        if (isAuthCurrent(generation, userId)) setLoading(false);
       }
+    }
+    const applySession = (userId: string | null) => {
+      const transition = advanceAuthIdentity({
+        initialized: authInitializedRef.current,
+        generation: authGenerationRef.current,
+        userId: currentUserIdRef.current,
+      }, userId);
+      if (!transition.changed) return;
+      authInitializedRef.current = transition.state.initialized;
+      authGenerationRef.current = transition.state.generation;
+      currentUserIdRef.current = transition.state.userId;
+      requestGenerationRef.current += 1;
+      mutationLockRef.current = createMutationLock();
+      setCurrentProfile(null); setProfiles([]); setSelectedPatientId(''); setSelectedDate(madridDateString());
+      setDrafts(emptyDrafts()); setAdminViews([]); setAccessError(null); setMessage(null);
+      setImportOpen(false); setImportRefreshKey(0); setSaving(false); setLoadingPlan(false);
+      setLoading(Boolean(userId));
+      if (!userId) { router.replace('/'); return; }
+      void initialize(userId, transition.state.generation);
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      receivedAuthEvent = true;
+      applySession(session?.user.id ?? null);
     });
-
+    supabase.auth.getSession()
+      .then(({ data }) => { if (mountedRef.current && !receivedAuthEvent) applySession(data.session?.user.id ?? null); })
+      .catch(() => { if (mountedRef.current && !receivedAuthEvent) applySession(null); });
     return () => {
-      active = false;
+      mountedRef.current = false;
+      authGenerationRef.current += 1;
+      currentUserIdRef.current = null;
+      requestGenerationRef.current += 1;
       subscription.unsubscribe();
     };
-  }, [router]);
+  }, [isAuthCurrent, router]);
 
   useEffect(() => {
-    let active = true;
-
     async function loadPlan() {
+      const generation = authGenerationRef.current;
+      const userId = currentUserIdRef.current;
+      const requestGeneration = ++requestGenerationRef.current;
+      if (!userId || !isAuthCurrent(generation, userId)) return;
       if (!selectedPatientId) {
         setDrafts(emptyDrafts());
         return;
       }
-
       setLoadingPlan(true);
       setMessage(null);
-      const { data, error } = await supabase
-        .from('daily_plan')
-        .select('id, meal_type, title, ingredients, is_completed')
-        .eq('user_id', selectedPatientId)
-        .eq('date', selectedDate);
-
-      if (!active) return;
-
-      if (error) {
-        setDrafts(emptyDrafts());
-        setMessage({ type: 'error', text: 'No se pudo cargar el plan de este día.' });
-      } else {
+      try {
+        const { data, error } = await supabase
+          .from('daily_plan')
+          .select('id, meal_type, title, ingredients, is_completed')
+          .eq('user_id', selectedPatientId)
+          .eq('date', selectedDate);
+        if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return;
+        if (error) throw error;
         const nextDrafts = emptyDrafts();
         for (const row of (data ?? []) as DailyPlanRow[]) {
           if (row.meal_type in nextDrafts) {
@@ -261,15 +283,19 @@ export default function AdminPage() {
           }
         }
         setDrafts(nextDrafts);
+      } catch {
+        if (isAuthCurrent(generation, userId) && requestGeneration === requestGenerationRef.current) {
+          setDrafts(emptyDrafts());
+          setMessage({ type: 'error', text: 'No se pudo cargar el plan de este día.' });
+        }
+      } finally {
+        if (isAuthCurrent(generation, userId) && requestGeneration === requestGenerationRef.current) setLoadingPlan(false);
       }
-      setLoadingPlan(false);
     }
 
     void loadPlan();
-    return () => {
-      active = false;
-    };
-  }, [importRefreshKey, selectedDate, selectedPatientId]);
+    return () => { requestGenerationRef.current += 1; };
+  }, [importRefreshKey, isAuthCurrent, selectedDate, selectedPatientId]);
 
   useEffect(() => {
     if (!message || message.type !== 'success') return;
@@ -289,32 +315,37 @@ export default function AdminPage() {
 
   async function savePlan() {
     if (!selectedPatientId || importOpen || isHistoricalDay) return;
-
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    if (!userId || !isAuthCurrent(generation, userId)) return;
+    const mutationLock = mutationLockRef.current;
+    if (!mutationLock.tryAcquire()) return;
     const patientSnapshot = selectedPatientId;
     const dateSnapshot = selectedDate;
-    setSaving(true);
-    setMessage(null);
-
-    const { data, error } = await supabase.rpc('save_daily_plan', {
-      target_user: patientSnapshot,
-      target_date: dateSnapshot,
-      meals: buildMealPayload(
-        drafts,
-        MEALS.map(({ key }) => key),
-      ),
-    });
-
-    if (error) {
-      console.error('Error guardando el plan:', error);
-      setMessage({ type: 'error', text: 'No se pudo guardar el plan completo. Inténtalo de nuevo.' });
-    } else {
-      const selection = selectionRef.current;
-      if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
-        setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]));
+    try {
+      setSaving(true); setMessage(null);
+      const { data, error } = await supabase.rpc('save_daily_plan', {
+        target_user: patientSnapshot,
+        target_date: dateSnapshot,
+        meals: buildMealPayload(drafts, MEALS.map(({ key }) => key)),
+      });
+      if (!isAuthCurrent(generation, userId)) return;
+      if (error) {
+        console.error('Error guardando el plan:', error);
+        setMessage({ type: 'error', text: 'No se pudo guardar el plan completo. Inténtalo de nuevo.' });
+      } else {
+        const selection = selectionRef.current;
+        if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
+          setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]));
+        }
+        setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
       }
-      setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
+    } catch {
+      if (isAuthCurrent(generation, userId)) setMessage({ type: 'error', text: 'No se pudo guardar el plan completo. Inténtalo de nuevo.' });
+    } finally {
+      if (isAuthCurrent(generation, userId)) setSaving(false);
+      mutationLock.release();
     }
-    setSaving(false);
   }
 
   async function logout() {
@@ -398,7 +429,7 @@ export default function AdminPage() {
           </section>
 
           <nav className="mt-6 space-y-2 border-t border-slate-100 pt-5">
-            <ViewNavigation current="admin" vertical />
+            <AdminNavigation current="admin" resolvedViews={adminViews} />
             <button
               type="button"
               onClick={() => void logout()}
