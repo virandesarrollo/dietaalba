@@ -25,7 +25,7 @@ import {
   ChevronRight, 
   Utensils, 
   MessageSquare, 
-  Sparkles, 
+  Sparkles,
   X, 
   Copy, 
   CheckCheck, 
@@ -877,7 +877,7 @@ export default function Home() {
     }
   };
 
-  // Formato del informe para enviar a la chica
+  // Formato del informe para compartir
   const reviewedItems = useMemo(() => {
     return Object.values(reviews).filter(r => (r.notes && r.notes.trim()) || r.rating);
   }, [reviews]);
@@ -956,17 +956,20 @@ export default function Home() {
 
       {/* Header Aesthetic */}
       <header className="bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 pt-10 pb-6 px-6 rounded-b-[2.5rem] shadow-sm border-b border-pink-100/50">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="text-pink-400" size={18} />
-            <span className="text-xs font-semibold uppercase tracking-widest text-pink-500">
-              {currentTab === 'plan' ? 'Mantra Diario' : 'Reporte para la chica'}
-            </span>
+        <div className="flex items-start justify-between gap-4 mb-3">
+          {currentTab === 'plan' ? (
+            <p className="min-w-0 flex-1 text-base font-medium italic leading-snug text-slate-800">
+              "{MOTIVATIONAL_QUOTES[quoteIndex]}"
+            </p>
+          ) : (
+            <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
+          )}
+          <div className="shrink-0">
+            <AccountMenu
+              email={session.user.email ?? ''}
+              canAccessSettings={canAccessSettings}
+            />
           </div>
-          <AccountMenu
-            email={session.user.email ?? ''}
-            canAccessSettings={canAccessSettings}
-          />
         </div>
 
         {canOpenNotes && (
@@ -982,11 +985,6 @@ export default function Home() {
 
         {currentTab === 'plan' ? (
           <>
-            {/* Frase Motivadora */}
-            <p className="text-slate-800 text-base font-medium leading-snug italic mb-5 min-h-[48px] flex items-center">
-              "{MOTIVATIONAL_QUOTES[quoteIndex]}"
-            </p>
-
             {/* Selector de Fecha */}
             <div className="flex items-center justify-between bg-white/80 backdrop-blur-md rounded-2xl p-2 shadow-sm border border-pink-100/60">
               <button onClick={() => changeDate(-1)} className="p-2 hover:bg-pink-50 rounded-xl transition-colors text-pink-400">
@@ -1003,7 +1001,7 @@ export default function Home() {
         ) : (
           <div className="mt-2 mb-2">
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <span>Notas para la chica</span>
+              <span>Notas</span>
               <span className="text-base">💌</span>
             </h1>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed font-light">
@@ -1219,7 +1217,7 @@ export default function Home() {
         </section>
       )}
 
-      {/* VISTA 2: APARTADO DE NOTAS PARA LA CHICA */}
+      {/* VISTA 2: APARTADO DE NOTAS */}
       {currentTab === 'notes' && canOpenNotes && (
         <section className="px-5 mt-5 space-y-4">
           {/* Tarjeta de Acciones Rápidas */}
@@ -1227,7 +1225,7 @@ export default function Home() {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-500">Resumen semanal</span>
-                <h2 className="text-sm font-bold text-slate-800">Enviar reporte a la chica</h2>
+                <h2 className="text-sm font-bold text-slate-800">Enviar reporte</h2>
               </div>
               <div className="bg-pink-50 text-pink-600 text-xs px-2.5 py-1 rounded-full font-bold">
                 {reviewedItems.length} {reviewedItems.length === 1 ? 'receta' : 'recetas'}
@@ -1382,7 +1380,7 @@ export default function Home() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-500 mb-3">Valora este plato (se guardará en tu lista de notas para la chica):</p>
+            <p className="text-xs text-slate-500 mb-3">Valora este plato (se guardará en tu lista de notas):</p>
 
             {/* Estrellas */}
             <div className="flex justify-center gap-2 mb-4">
