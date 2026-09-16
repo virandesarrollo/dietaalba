@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Calendar,
   CheckCircle,
   ChevronRight,
   FileUp,
   LogOut,
+  Plus,
   Save,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +23,7 @@ import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminV
 import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
+import { groupMealOptions, MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
 import { DietImportWizard } from '@/components/DietImportWizard';
 
 type Profile = {
@@ -37,13 +42,18 @@ type DailyPlanRow = {
   meal_type: string;
   title: string;
   ingredients: string | null;
+  recipe_url: string | null;
   is_completed: boolean;
+  option_order: number | null;
+  created_at: string;
 };
 
 type MealDraft = {
   id?: string;
+  clientKey: string;
   title: string;
   ingredients: string;
+  recipeUrl: string;
   isCompleted: boolean;
 };
 
@@ -57,12 +67,24 @@ const MEALS = [
 ] as const;
 
 type MealType = (typeof MEALS)[number]['key'];
-type MealDrafts = Record<MealType, MealDraft>;
+type MealDrafts = Record<MealType, MealDraft[]>;
+
+function createClientKey(): string {
+  return crypto.randomUUID();
+}
+
+function emptyMealDraft(): MealDraft {
+  return { clientKey: createClientKey(), title: '', ingredients: '', recipeUrl: '', isCompleted: false };
+}
 
 function emptyDrafts(): MealDrafts {
   return Object.fromEntries(
-    MEALS.map(({ key }) => [key, { title: '', ingredients: '', isCompleted: false }]),
+    MEALS.map(({ key }) => [key, [emptyMealDraft()]]),
   ) as MealDrafts;
+}
+
+function planContextKey(patientId: string, date: string): string {
+  return `${patientId}\u0000${date}`;
 }
 
 function localDateString(date = new Date()): string {
@@ -92,9 +114,14 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importRefreshKey, setImportRefreshKey] = useState(0);
+  const [planRetryKey, setPlanRetryKey] = useState(0);
+  const [loadedPlanContext, setLoadedPlanContext] = useState<string | null>(null);
+  const [planLoadError, setPlanLoadError] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [adminViews, setAdminViews] = useState<AdminView[]>([]);
+  const planContext = planContextKey(selectedPatientId, selectedDate);
+  const isPlanReady = loadedPlanContext === planContext;
   const selectionRef = useRef({ patientId: selectedPatientId, date: selectedDate });
   const mountedRef = useRef(true);
   const authGenerationRef = useRef(0);
@@ -230,7 +257,8 @@ export default function AdminPage() {
       mutationLockRef.current = createMutationLock();
       setCurrentProfile(null); setProfiles([]); setSelectedPatientId(''); setSelectedDate(madridDateString());
       setDrafts(emptyDrafts()); setAdminViews([]); setAccessError(null); setMessage(null);
-      setImportOpen(false); setImportRefreshKey(0); setSaving(false); setLoadingPlan(false);
+      setImportOpen(false); setImportRefreshKey(0); setPlanRetryKey(0); setSaving(false); setLoadingPlan(false);
+      setLoadedPlanContext(null); setPlanLoadError(false);
       setLoading(Boolean(userId));
       if (!userId) { router.replace('/'); return; }
       void initialize(userId, transition.state.generation);
@@ -257,8 +285,11 @@ export default function AdminPage() {
       const userId = currentUserIdRef.current;
       const requestGeneration = ++requestGenerationRef.current;
       if (!userId || !isAuthCurrent(generation, userId)) return;
+      setLoadedPlanContext(null);
+      setPlanLoadError(false);
       if (!selectedPatientId) {
         setDrafts(emptyDrafts());
+        setLoadingPlan(false);
         return;
       }
       setLoadingPlan(true);
@@ -266,26 +297,32 @@ export default function AdminPage() {
       try {
         const { data, error } = await supabase
           .from('daily_plan')
-          .select('id, meal_type, title, ingredients, is_completed')
+          .select('id, meal_type, title, ingredients, recipe_url, is_completed, option_order, created_at')
           .eq('user_id', selectedPatientId)
           .eq('date', selectedDate);
         if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return;
         if (error) throw error;
         const nextDrafts = emptyDrafts();
-        for (const row of (data ?? []) as DailyPlanRow[]) {
-          if (row.meal_type in nextDrafts) {
-            nextDrafts[row.meal_type as MealType] = {
+        const groupedRows = groupMealOptions((data ?? []) as DailyPlanRow[]) as Record<string, DailyPlanRow[]>;
+        for (const { key } of MEALS) {
+          const rows = groupedRows[key];
+          if (rows?.length) {
+            nextDrafts[key] = rows.map((row) => ({
               id: row.id,
+              clientKey: createClientKey(),
               title: row.title ?? '',
               ingredients: row.ingredients ?? '',
+              recipeUrl: row.recipe_url ?? '',
               isCompleted: row.is_completed ?? false,
-            };
+            }));
           }
         }
         setDrafts(nextDrafts);
+        setLoadedPlanContext(planContext);
       } catch {
         if (isAuthCurrent(generation, userId) && requestGeneration === requestGenerationRef.current) {
           setDrafts(emptyDrafts());
+          setPlanLoadError(true);
           setMessage({ type: 'error', text: 'No se pudo cargar el plan de este día.' });
         }
       } finally {
@@ -295,7 +332,7 @@ export default function AdminPage() {
 
     void loadPlan();
     return () => { requestGenerationRef.current += 1; };
-  }, [importRefreshKey, isAuthCurrent, selectedDate, selectedPatientId]);
+  }, [importRefreshKey, isAuthCurrent, planContext, planRetryKey, selectedDate, selectedPatientId]);
 
   useEffect(() => {
     if (!message || message.type !== 'success') return;
@@ -304,17 +341,48 @@ export default function AdminPage() {
   }, [message]);
 
   const selectedPatient = profiles.find((profile) => profile.id === selectedPatientId);
+  const contextDisabled = loadingPlan || saving || importOpen;
+  const editingDisabled = !isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay;
 
-  function updateDraft(mealType: MealType, field: 'title' | 'ingredients', value: string) {
-    if (isHistoricalDay) return;
+  function updateOption(mealType: MealType, index: number, field: 'title' | 'ingredients', value: string) {
+    if (editingDisabled) return;
     setDrafts((current) => ({
       ...current,
-      [mealType]: { ...current[mealType], [field]: value },
+      [mealType]: current[mealType].map((option, optionIndex) => (
+        optionIndex === index ? { ...option, [field]: value } : option
+      )),
     }));
   }
 
+  function addOption(mealType: MealType) {
+    if (editingDisabled) return;
+    setDrafts((current) => current[mealType].length >= MAX_MEAL_OPTIONS ? current : ({
+      ...current,
+      [mealType]: [...current[mealType], emptyMealDraft()],
+    }));
+  }
+
+  function removeOption(mealType: MealType, index: number) {
+    if (editingDisabled) return;
+    setDrafts((current) => current[mealType].length <= 1 ? current : ({
+      ...current,
+      [mealType]: current[mealType].filter((_, optionIndex) => optionIndex !== index),
+    }));
+  }
+
+  function moveOption(mealType: MealType, index: number, direction: -1 | 1) {
+    if (editingDisabled) return;
+    setDrafts((current) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= current[mealType].length) return current;
+      const options = [...current[mealType]];
+      [options[index], options[targetIndex]] = [options[targetIndex], options[index]];
+      return { ...current, [mealType]: options };
+    });
+  }
+
   async function savePlan() {
-    if (!selectedPatientId || importOpen || isHistoricalDay) return;
+    if (!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
@@ -336,7 +404,7 @@ export default function AdminPage() {
       } else {
         const selection = selectionRef.current;
         if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
-          setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]));
+          setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]) as MealDrafts);
         }
         setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
       }
@@ -404,8 +472,9 @@ export default function AdminPage() {
                   <button
                     key={profile.id}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => setSelectedPatientId(profile.id)}
-                    disabled={saving || importOpen}
+                    disabled={contextDisabled}
                     className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
                       selected
                         ? 'bg-slate-800 text-white shadow-sm'
@@ -458,7 +527,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día anterior"
                 onClick={() => setSelectedDate((date) => moveDate(date, -1))}
-                disabled={saving || importOpen}
+                disabled={contextDisabled}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ArrowLeft size={18} />
@@ -469,14 +538,14 @@ export default function AdminPage() {
                   type="date"
                   value={selectedDate}
                   onChange={(event) => setSelectedDate(event.target.value)}
-                  disabled={saving || !selectedPatientId || importOpen}
+                  disabled={!selectedPatientId || contextDisabled}
                   className="rounded-2xl border-0 bg-slate-50 py-2.5 pl-10 pr-3 text-sm font-medium text-slate-700 outline-none ring-rose-200 focus:ring-2"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedDate(madridDateString())}
-                disabled={saving || importOpen}
+                disabled={contextDisabled}
                 className="rounded-2xl px-4 py-2.5 text-sm font-semibold text-rose-500 hover:bg-rose-50"
               >
                 Hoy
@@ -485,7 +554,7 @@ export default function AdminPage() {
                 type="button"
                 aria-label="Día siguiente"
                 onClick={() => setSelectedDate((date) => moveDate(date, 1))}
-                disabled={saving || importOpen}
+                disabled={contextDisabled}
                 className="rounded-2xl p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-500"
               >
                 <ChevronRight size={18} />
@@ -507,6 +576,19 @@ export default function AdminPage() {
             </div>
           )}
 
+          {planLoadError && selectedPatientId && (
+            <div className="mb-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPlanRetryKey((key) => key + 1)}
+                disabled={loadingPlan || saving || importOpen}
+                className="min-h-11 rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reintentar carga
+              </button>
+            </div>
+          )}
+
           <div className={`grid gap-5 md:grid-cols-2 xl:grid-cols-3 ${loadingPlan ? 'pointer-events-none opacity-50' : ''}`}>
             {MEALS.map(({ key, label, accent }, index) => (
               <article key={key} className={`rounded-3xl border p-5 shadow-sm ${accent}`}>
@@ -522,46 +604,106 @@ export default function AdminPage() {
                   </span>
                 </div>
 
-                <label className="block text-xs font-semibold text-slate-600">
-                  Plato
-                  <input
-                    value={drafts[key].title}
-                    onChange={(event) => updateDraft(key, 'title', event.target.value)}
-                    placeholder={`Nombre del ${label.toLowerCase()}`}
-                    disabled={!selectedPatientId || saving || importOpen || isHistoricalDay}
-                    className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
-                  />
-                </label>
+                <div className="space-y-4">
+                  {drafts[key].map((draft, optionIndex) => (
+                    <section
+                      key={draft.id ?? draft.clientKey}
+                      className="rounded-2xl border border-white/80 bg-white/35 p-3"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        {drafts[key].length > 1 && (
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                            Opción {optionIndex + 1}
+                          </p>
+                        )}
+                        <div className="ml-auto flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={`Mover arriba la opción ${optionIndex + 1} de ${label}`}
+                            onClick={() => moveOption(key, optionIndex, -1)}
+                            disabled={editingDisabled || optionIndex === 0}
+                            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <ArrowUp size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Mover abajo la opción ${optionIndex + 1} de ${label}`}
+                            onClick={() => moveOption(key, optionIndex, 1)}
+                            disabled={editingDisabled || optionIndex === drafts[key].length - 1}
+                            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <ArrowDown size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Eliminar la opción ${optionIndex + 1} de ${label}`}
+                            onClick={() => removeOption(key, optionIndex)}
+                            disabled={editingDisabled || drafts[key].length === 1}
+                            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-rose-500 hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
 
-                <label className="mt-4 block text-xs font-semibold text-slate-600">
-                  Ingredientes e indicaciones
-                  <textarea
-                    value={drafts[key].ingredients}
-                    onChange={(event) => updateDraft(key, 'ingredients', event.target.value)}
-                    placeholder="Cantidades, preparación y observaciones…"
-                    disabled={!selectedPatientId || saving || importOpen || isHistoricalDay}
-                    rows={5}
-                    className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
-                  />
-                </label>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Plato
+                        <input
+                          id={`meal-${index}-option-${optionIndex}-title`}
+                          name={`meal-${index}-option-${optionIndex}-title`}
+                          value={draft.title}
+                          onChange={(event) => updateOption(key, optionIndex, 'title', event.target.value)}
+                          placeholder={`Nombre del ${label.toLowerCase()}`}
+                          disabled={!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay}
+                          className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
+                        />
+                      </label>
+
+                      <label className="mt-4 block text-xs font-semibold text-slate-600">
+                        Ingredientes e indicaciones
+                        <textarea
+                          id={`meal-${index}-option-${optionIndex}-ingredients`}
+                          name={`meal-${index}-option-${optionIndex}-ingredients`}
+                          value={draft.ingredients}
+                          onChange={(event) => updateOption(key, optionIndex, 'ingredients', event.target.value)}
+                          placeholder="Cantidades, preparación y observaciones…"
+                          disabled={!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay}
+                          rows={5}
+                          className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
+                        />
+                      </label>
+                    </section>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  aria-label={`Añadir opción a ${label}`}
+                  onClick={() => addOption(key)}
+                  disabled={editingDisabled || drafts[key].length >= MAX_MEAL_OPTIONS}
+                  className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={17} /> Añadir opción
+                </button>
               </article>
             ))}
           </div>
 
-          <div className="sticky bottom-5 mt-7 flex justify-end gap-3">
+          <div className="sticky bottom-5 mt-7 flex flex-col justify-end gap-3 sm:flex-row">
             <button
               type="button"
               onClick={() => setImportOpen(true)}
-              disabled={!selectedPatientId || saving || loadingPlan || importOpen || isHistoricalDay}
-              className="flex items-center gap-2 rounded-2xl bg-rose-100 px-6 py-3.5 text-sm font-bold text-rose-700 shadow-lg shadow-slate-200 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!isPlanReady || saving || loadingPlan || importOpen || isHistoricalDay}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-rose-100 px-6 py-3.5 text-sm font-bold text-rose-700 shadow-lg shadow-slate-200 transition hover:bg-rose-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
               <FileUp size={18} /> Importar dieta
             </button>
             <button
               type="button"
               onClick={() => void savePlan()}
-              disabled={!selectedPatientId || saving || loadingPlan || importOpen}
-              className="flex items-center gap-2 rounded-2xl bg-slate-800 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-300 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!isPlanReady || saving || loadingPlan || importOpen || isHistoricalDay}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-800 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-300 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
               <Save size={18} />
               {saving ? 'Guardando…' : 'Guardar Plan'}
@@ -576,6 +718,7 @@ export default function AdminPage() {
         patientName={selectedPatient?.full_name || selectedPatient?.email || ''}
         onClose={() => setImportOpen(false)}
         onImported={(startDate) => {
+          setLoadedPlanContext(null);
           setSelectedDate(startDate);
           setImportRefreshKey((key) => key + 1);
           setMessage({ type: 'success', text: 'Dieta importada correctamente.' });

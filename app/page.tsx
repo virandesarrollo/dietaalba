@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
@@ -11,6 +11,7 @@ import { AccountMenu } from '@/components/AccountMenu';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
 import { decideFocusTrapTarget } from '@/lib/gym-workouts.js';
+import { MAX_MEAL_OPTIONS, sortMealOptions, groupMealOptions, applyExclusiveSelection, reconcileMealSelection } from '@/lib/meal-options.js';
 import {
   createLatestRequestGuard,
   createMutationLock,
@@ -34,10 +35,8 @@ import {
   Edit3, 
   Trash2, 
   Send,
-  Heart,
   ChevronDown,
-  ArrowLeftRight,
-  RotateCcw
+  ArrowLeftRight
 } from 'lucide-react';
 
 type Meal = {
@@ -50,6 +49,8 @@ type Meal = {
   is_free_meal?: boolean;
   free_meal_label?: string | null;
   is_completed: boolean;
+  option_order?: number | null;
+  created_at?: string | null;
 };
 
 type RecipeReview = {
@@ -82,90 +83,7 @@ const MOTIVATIONAL_QUOTES = [
   "Siente el progreso, no busques la perfección 🩰",
 ];
 
-const MEAL_TYPES = ['DESAYUNO', 'MEDIA MAÑANA', 'ALMUERZO', 'MERIENDA', 'CENA'];
-
-const WEEKDAY_TEMPLATES: Record<string, {
-  label: string;
-  meals: {
-    meal_type: string;
-    title: string;
-    ingredients: string;
-    recipe_url?: string | null;
-    is_free_meal?: boolean;
-    free_meal_label?: string | null;
-  }[];
-}> = {
-  'LUNES': {
-    label: 'Lunes',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Tostada de pavo y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 60g de pavo. Café o infusión.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Berenjena rellena con lomo y gazpacho', ingredients: 'Berenjena rellena con tomate frito sin azúcar, lomo troceado 100g, cebollita, queso 20g + 1 vasito de gazpacho grande.' },
-      { meal_type: 'MERIENDA', title: 'Yogurt Alpro con fruta y miel', ingredients: 'Medio yogurt Alpro con fruta troceada y añade una cucharadita de miel.' },
-      { meal_type: 'CENA', title: 'Pinchitos de pollo con ensalada cherry y feta', ingredients: 'Pinchitos de pollo 120g a la plancha + ensalada de tomate cherry, medio aguacate, canónigos y 4 cubitos de queso feta.' },
-    ]
-  },
-  'MARTES': {
-    label: 'Martes',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Tostada de jamón serrano y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 40g de jamón serrano. Café o infusión.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Pastel de patata sabor pizza', ingredients: '200g de patata, 2 latas de atún, 2 cdas de tomate frito sin azúcar, 1 cda de parmesano, 1 huevo, orégano y sal.' },
-      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
-      { meal_type: 'CENA', title: 'Revuelto de huevos con calabacín', ingredients: 'Revuelto de 2 huevos con calabacín salteados.' },
-    ]
-  },
-  'MIÉRCOLES': {
-    label: 'Miércoles',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Yogurt proteico con chía y avena', ingredients: '1 yogurt natural de proteínas recomendado con semillas de chía remojadas del día anterior y 35-40g de avena.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Sepia a la plancha con salsa verde y berenjena', ingredients: 'Sepia 180g a la plancha con un poco de salsa verde (ajito, perejil, aceite y sal) y berenjena a la plancha + 1 vasito de gazpacho grande.' },
-      { meal_type: 'MERIENDA', title: 'Bizcocho de cacahuete', ingredients: '1 huevo, 1 plátano, 1 Cda de crema de cacahuete y 1 onza de chocolate.' },
-      { meal_type: 'CENA', title: 'Judías verdes con ajito y jamón', ingredients: 'Judías verdes a la plancha con ajito y 90g de taquitos de jamón.' },
-    ]
-  },
-  'JUEVES': {
-    label: 'Jueves',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Tostada de jamón serrano y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y 40g de jamón serrano. Café o infusión.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Risotto de champiñones, pollo y queso', ingredients: '60g de arroz, champiñones, 100g de tiras de pollo y 20g de queso.' },
-      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
-      { meal_type: 'CENA', title: 'Ensalada de pimientos del piquillo, atún y feta', ingredients: 'Ensalada de pimientos del piquillo, 1 lata de atún y 7 cubitos de queso feta.' },
-    ]
-  },
-  'VIERNES': {
-    label: 'Viernes',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Tostada de tomate y café/infusión', ingredients: 'Tostada de pan recomendado (60g aprox.), aceite y tomate. Café o infusión.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Filete de merluza con ensalada y gazpacho', ingredients: 'Filete de merluza (200g) con ensalada de rúcula, tomate y cebolla (aliñar al gusto) + 1 vasito de gazpacho grande.' },
-      { meal_type: 'MERIENDA', title: 'Yogurt Alpro con fruta y miel', ingredients: 'Medio yogurt Alpro con fruta troceada y añade una cucharadita de miel.' },
-      { meal_type: 'CENA', title: 'Panini saludable', ingredients: '60g de pan, tomate frito, 1 lata de atún, aceitunas cortadas 20g, queso rallado 30g y orégano.' },
-    ]
-  },
-  'SÁBADO': {
-    label: 'Sábado',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Yogurt proteico con chía y avena', ingredients: '1 yogurt natural de proteínas recomendado con semillas de chía remojadas del día anterior y 35-40g de avena.' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Yogurt 0% o Fruta', ingredients: '1 yogurt 0% o 1 pieza de fruta.' },
-      { meal_type: 'ALMUERZO', title: 'Espaguetis jugosos con champiñones, pollo y jamón', ingredients: 'Pasta 60g con salteado de champiñones, cebolla, pollo 90g y 40g de taquitos de jamón. Salsa: 1 cda de yogur griego natural y otra de parmesano.' },
-      { meal_type: 'MERIENDA', title: 'Pieza de fruta', ingredients: '1 pieza de fruta.' },
-      { meal_type: 'CENA', title: 'Crackers con queso rallado y pavo', ingredients: '2 tostaditas crackers con 30g de queso rallado y 60g de pavo cocido.' },
-    ]
-  },
-  'DOMINGO': {
-    label: 'Domingo',
-    meals: [
-      { meal_type: 'DESAYUNO', title: 'Desayuno a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
-      { meal_type: 'MEDIA MAÑANA', title: 'Media mañana a elegir ✨', ingredients: 'Elige la opción que más te guste de la semana (1 yogurt 0% o 1 pieza de fruta).', is_free_meal: true, free_meal_label: 'A elegir' },
-      { meal_type: 'ALMUERZO', title: 'Almuerzo a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
-      { meal_type: 'MERIENDA', title: 'Merienda a elegir (opción de la semana) ✨', ingredients: 'Elige la opción que más te guste de la semana de entre las recetas anteriores.', is_free_meal: true, free_meal_label: 'A elegir' },
-      { meal_type: 'CENA', title: 'Cena Libre 🎉', ingredients: 'Cena libre: disfruta de la cena que más te apetezca.', is_free_meal: true, free_meal_label: 'Libre 🎉' },
-    ]
-  }
-};
+const MEAL_TYPES = ['DESAYUNO', 'MEDIA MAÑANA', 'ALMUERZO', 'MERIENDA', 'CENA', 'POSTRE NOCTURNO'];
 
 const parseDateString = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -194,10 +112,18 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
   const [meals, setMeals] = useState<Meal[]>([]);
+  const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [mutatingPlan, setMutatingPlan] = useState(false);
+  const [planRefreshRequired, setPlanRefreshRequired] = useState(false);
   const [reviews, setReviews] = useState<Record<string, RecipeReview>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [quoteIndex, setQuoteIndex] = useState<number>(0);
+  const [quoteIndex] = useState(() => {
+    const now = new Date();
+    const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+    return dayOfYear % MOTIVATIONAL_QUOTES.length;
+  });
 
   // Estado para modal de cargar o intercambiar día
   const [showLoadDayModal, setShowLoadDayModal] = useState<boolean>(false);
@@ -230,20 +156,27 @@ export default function Home() {
   const sourceDaysGuardRef = useRef(createLatestRequestGuard());
   const mutationGuardRef = useRef(createLatestRequestGuard());
   const reviewMutationBusyRef = useRef(createMutationLock());
-
-  useEffect(() => {
-    const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-    setQuoteIndex(dayOfYear % MOTIVATIONAL_QUOTES.length);
-  }, []);
+  const planMutationGuardRef = useRef(createLatestRequestGuard());
+  const planMutationBusyRef = useRef(createMutationLock());
 
   useEffect(() => {
     const requestGuard = requestGuardRef.current;
+    const sourceDaysGuard = sourceDaysGuardRef.current;
+    const planMutationGuard = planMutationGuardRef.current;
     const initialSessionGeneration = requestGuard.currentGeneration();
     const applyAuthSession = (nextSession: Session | null) => {
       const generation = requestGuard.invalidate();
-      sourceDaysGuardRef.current.invalidate();
+      sourceDaysGuard.invalidate();
       mutationGuardRef.current.invalidate();
       reviewMutationBusyRef.current.reset();
+      planMutationGuard.invalidate();
+      planMutationBusyRef.current.reset();
+      setMutatingPlan(false);
+      setApplyingDayChange(false);
+      setSavingNewMeal(false);
+      setShowAddMealModal(false);
+      setPlanError(null);
+      setPlanRefreshRequired(false);
       setSession(nextSession);
       setAuthGeneration(generation);
       setMeals([]);
@@ -279,16 +212,11 @@ export default function Home() {
 
     return () => {
       requestGuard.invalidate();
-      sourceDaysGuardRef.current.invalidate();
+      sourceDaysGuard.invalidate();
+      planMutationGuard.invalidate();
       subscription.unsubscribe();
     };
   }, []);
-
-  useEffect(() => {
-    if (session) {
-      fetchData(selectedDate);
-    }
-  }, [selectedDate, session, authGeneration]);
 
   useEffect(() => {
     if (!canOpenNotes) {
@@ -334,7 +262,7 @@ export default function Home() {
     }
   }
 
-  async function fetchData(dateToFetch?: string) {
+  const fetchData = useCallback(async (dateToFetch?: string) => {
     const targetDate = dateToFetch || selectedDate;
     const userId = session?.user?.id;
     if (!userId) return;
@@ -373,7 +301,7 @@ export default function Home() {
     // 1. Cargar comidas de la fecha seleccionada
     const { data: mealsData, error: mealsError } = await supabase
       .from('daily_plan')
-      .select('*')
+      .select('id, date, meal_type, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
       .eq('date', targetDate)
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
@@ -383,16 +311,7 @@ export default function Home() {
       console.error('Error cargando comidas:', mealsError);
       commit(() => setMeals([]));
     } else if (mealsData) {
-      const orderMap = MEAL_TYPES.reduce<Record<string, number>>((acc, type, idx) => {
-        acc[type] = idx;
-        return acc;
-      }, {});
-      const sortedMeals = [...(mealsData as Meal[])].sort((a, b) => {
-        const orderA = orderMap[a.meal_type] ?? 99;
-        const orderB = orderMap[b.meal_type] ?? 99;
-        return orderA - orderB;
-      });
-      commit(() => setMeals(sortedMeals));
+      commit(() => setMeals(sortMealOptions(mealsData as Meal[])));
     } else {
       commit(() => setMeals([]));
     }
@@ -421,7 +340,7 @@ export default function Home() {
     const allRecipes: Recipe[] = [];
     if (planMeals) {
       const titlesSet = new Set<string>();
-      planMeals.forEach((m: any) => {
+      planMeals.forEach((m: Pick<Meal, 'title' | 'meal_type' | 'ingredients' | 'recipe_url' | 'is_free_meal'>) => {
         if (!m.is_free_meal && m.title && !m.title.includes('Libre') && !titlesSet.has(m.title.toLowerCase().trim())) {
           allRecipes.push({
             title: m.title,
@@ -436,7 +355,14 @@ export default function Home() {
 
     commit(() => setRecipes(allRecipes));
     commit(() => setLoading(false));
-  }
+    return !mealsError;
+  }, [selectedDate, session]);
+
+  useEffect(() => {
+    if (session) {
+      fetchData(selectedDate);
+    }
+  }, [selectedDate, session, authGeneration, fetchData]);
 
   // Agrupación de recetas por tipo para el desplegable
   const groupedRecipes = useMemo(() => {
@@ -463,18 +389,101 @@ export default function Home() {
       }
     });
 
-    return Object.fromEntries(Object.entries(groups).filter(([_, list]) => list.length > 0));
+    return Object.fromEntries(Object.entries(groups).filter(([, list]) => list.length > 0));
   }, [recipes]);
 
-  async function toggleComplete(mealId: string, currentStatus: boolean) {
-    if (isHistoricalDay) return;
-    const updatedStatus = !currentStatus;
-    setMeals(meals.map(m => m.id === mealId ? { ...m, is_completed: updatedStatus } : m));
+  async function selectMealOption(mealId: string, currentStatus: boolean) {
+    const userId = session?.user?.id;
+    if (!userId || loading || planRefreshRequired || selectedDate !== madridDateString()) return;
+    const targetMeal = meals.find(meal => meal.id === mealId);
+    if (!targetMeal) return;
+    const mealType = targetMeal.meal_type;
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = planMutationGuardRef.current;
+    const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
+    const previousMeals = meals;
+    setMutatingPlan(true);
+    setPlanError(null);
+    setMeals(prev => applyExclusiveSelection(prev, mealId));
+    let selectionSaved = false;
+    let response: unknown;
+    try {
+      try {
+        const { data, error } = await supabase.rpc('select_meal_option', {
+          meal_id: mealId,
+          selected: !currentStatus,
+        });
+        selectionSaved = !error;
+        response = data;
+      } catch {
+        // Una respuesta perdida no permite saber si el servidor llegó a guardar.
+      }
+      if (!guard.isCurrent(mutation)) return;
+      const reconciledMeals = selectionSaved ? reconcileMealSelection(previousMeals, mealId, response) : null;
+      if (reconciledMeals) {
+        setMeals(reconciledMeals);
+        return;
+      }
+      try {
+        const { data: groupData, error: groupError } = await supabase
+          .from('daily_plan')
+          .select('id, date, meal_type, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
+          .eq('user_id', userId)
+          .eq('date', selectedDate)
+          .eq('meal_type', mealType);
+        if (groupError || !Array.isArray(groupData)) throw groupError ?? new Error('No se pudo leer el grupo');
+        if (!guard.isCurrent(mutation)) return;
+        setMeals(prev => sortMealOptions([...prev.filter(meal => meal.meal_type !== mealType), ...groupData as Meal[]]));
+        if (!selectionSaved) {
+          const selectionConfirmed = groupData.some(meal => meal.id === mealId && meal.is_completed === !currentStatus)
+            && groupData.every(meal => meal.id === mealId || !meal.is_completed);
+          setPlanError(selectionConfirmed
+            ? 'Selección guardada. La vista se ha actualizado.'
+            : 'No se guardó la selección solicitada. La vista muestra el estado actual.');
+        }
+      } catch {
+        if (!guard.isCurrent(mutation)) return;
+        if (selectionSaved) {
+          setPlanRefreshRequired(true);
+          setPlanError('Selección guardada, vista no actualizada. Recarga la vista.');
+        } else {
+          setMeals(previousMeals);
+          setPlanRefreshRequired(true);
+          setPlanError('No se pudo confirmar la selección. Recarga la vista antes de continuar.');
+        }
+      }
+    } finally {
+      if (guard.isGenerationCurrent(mutation.generation)) {
+        lock.release();
+        setMutatingPlan(false);
+      }
+    }
+  }
 
-    await supabase
-      .from('daily_plan')
-      .update({ is_completed: updatedStatus })
-      .eq('id', mealId);
+  async function reloadPlanView() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = planMutationGuardRef.current;
+    const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
+    setMutatingPlan(true);
+    try {
+      const refreshed = await fetchData(selectedDate);
+      if (!guard.isCurrent(mutation)) return;
+      if (refreshed) {
+        setPlanRefreshRequired(false);
+        setPlanError(null);
+      }
+    } catch {
+      if (guard.isCurrent(mutation)) setLoading(false);
+    } finally {
+      if (guard.isGenerationCurrent(mutation.generation)) {
+        lock.release();
+        setMutatingPlan(false);
+      }
+    }
   }
 
   const changeDate = (days: number) => {
@@ -486,6 +495,14 @@ export default function Home() {
   const selectDate = (nextDate: string) => {
     requestGuardRef.current.invalidateRequests();
     sourceDaysGuardRef.current.invalidateRequests();
+    planMutationGuardRef.current.invalidate();
+    planMutationBusyRef.current.reset();
+    setMutatingPlan(false);
+    setApplyingDayChange(false);
+    setSavingNewMeal(false);
+    setShowAddMealModal(false);
+    setPlanError(null);
+    setPlanRefreshRequired(false);
     setLoading(true);
     setMeals([]);
     setAvailableSourceDays([]);
@@ -497,6 +514,7 @@ export default function Home() {
   // Selección de receta para una comida libre existente
   const handleSelectRecipeForMeal = async (mealId: string, selectedRecipeTitle: string) => {
     if (isHistoricalDay) return;
+    if (planMutationBusyRef.current.isBusy() || planRefreshRequired) return;
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
 
@@ -529,6 +547,7 @@ export default function Home() {
   // Alternar si una comida es libre o no
   const toggleMealIsFree = async (mealId: string, currentIsFree: boolean | undefined) => {
     if (isHistoricalDay) return;
+    if (planMutationBusyRef.current.isBusy() || planRefreshRequired) return;
     const nextIsFree = !currentIsFree;
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
@@ -545,53 +564,55 @@ export default function Home() {
   // Añadir nueva comida libre en días vacíos o adicionales
   const handleAddFreeMeal = async () => {
     if (isHistoricalDay) return;
-    setSavingNewMeal(true);
-    let title = `${newMealType.charAt(0) + newMealType.slice(1).toLowerCase()} Libre 🎉`;
-    let ingredients = 'Comida libre';
-    let recipeUrl: string | null = null;
-
-    if (newMealRecipeTitle && newMealRecipeTitle !== '__custom__') {
-      const rec = recipes.find(r => r.title === newMealRecipeTitle);
-      if (rec) {
-        title = rec.title;
-        ingredients = rec.ingredients || '';
-        recipeUrl = rec.recipe_url || null;
-      }
+    const userId = session?.user?.id;
+    if (!userId || loading || planRefreshRequired) return;
+    const group = groupedMeals[newMealType] ?? [];
+    if (group.length >= MAX_MEAL_OPTIONS) {
+      setPlanError('Cada comida admite un máximo de 10 opciones.');
+      return;
     }
-
+    const nextOptionOrder = Math.max(0, ...group.map(meal => meal.option_order ?? 1)) + 1;
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = planMutationGuardRef.current;
+    const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
+    setSavingNewMeal(true);
+    setMutatingPlan(true);
+    setPlanError(null);
+    const rec = recipes.find(recipe => recipe.title === newMealRecipeTitle);
     const newRecord = {
       date: selectedDate,
       meal_type: newMealType,
-      title,
-      ingredients,
-      recipe_url: recipeUrl,
+      option_order: nextOptionOrder,
+      title: rec?.title ?? `${newMealType.charAt(0) + newMealType.slice(1).toLowerCase()} Libre 🎉`,
+      ingredients: rec?.ingredients || 'Comida libre',
+      recipe_url: rec?.recipe_url || null,
       is_free_meal: true,
       free_meal_label: 'Día Libre',
       is_completed: false,
-      user_id: session?.user?.id
+      user_id: userId,
     };
-
-    const { data, error } = await supabase.from('daily_plan').insert([newRecord]).select();
-
-    if (data && data.length > 0) {
-      const orderMap = MEAL_TYPES.reduce<Record<string, number>>((acc, type, idx) => {
-        acc[type] = idx;
-        return acc;
-      }, {});
-      const updated = [...meals, data[0] as Meal].sort((a, b) => {
-        const orderA = orderMap[a.meal_type] ?? 99;
-        const orderB = orderMap[b.meal_type] ?? 99;
-        return orderA - orderB;
-      });
-      setMeals(updated);
+    try {
+      const { data, error } = await supabase.from('daily_plan').insert([newRecord]).select();
+      if (error || !data?.length) throw error ?? new Error('No se devolvió la comida creada');
+      if (!guard.isCurrent(mutation)) return;
+      setMeals(prev => sortMealOptions([...prev, data[0] as Meal]));
       setShowAddMealModal(false);
       setNewMealRecipeTitle('');
+    } catch {
+      if (guard.isCurrent(mutation)) setPlanError('No se pudo añadir la opción. Inténtalo de nuevo.');
+    } finally {
+      if (guard.isGenerationCurrent(mutation.generation)) {
+        lock.release();
+        setSavingNewMeal(false);
+        setMutatingPlan(false);
+      }
     }
-    setSavingNewMeal(false);
   };
 
   const loadAvailableSourceDays = async () => {
     if (isHistoricalDay) return;
+    if (planRefreshRequired || planMutationBusyRef.current.isBusy()) return;
     const userId = session?.user?.id;
     if (!userId) return;
 
@@ -622,7 +643,7 @@ export default function Home() {
       for (const meal of (data ?? []) as Meal[]) {
         grouped.set(meal.date, [...(grouped.get(meal.date) ?? []), meal]);
       }
-      const days = Array.from(grouped, ([date, dayMeals]) => ({ date, meals: dayMeals }));
+      const days = Array.from(grouped, ([date, dayMeals]) => ({ date, meals: sortMealOptions(dayMeals) }));
       setAvailableSourceDays(days);
       setSelectedSourceDate(days[0]?.date ?? '');
     }
@@ -633,136 +654,54 @@ export default function Home() {
   const handleApplyDayMenu = async () => {
     if (isHistoricalDay || (loadDayMode === 'swap' && isHistoricalDate(selectedSourceDate))) return;
     const userId = session?.user?.id;
-    if (!userId || !selectedSourceDate) return;
+    const sourceDate = selectedSourceDate;
+    if (!userId || !sourceDate || sourceDate === selectedDate || loading || planRefreshRequired) return;
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = planMutationGuardRef.current;
+    const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setApplyingDayChange(true);
+    setMutatingPlan(true);
+    setPlanError(null);
     try {
-      // 1. Obtener siempre las comidas actuales de la base de datos para selectedDate
-      const { data: currentMealsData } = await supabase
-        .from('daily_plan')
-        .select('*')
-        .eq('date', selectedDate)
-        .eq('user_id', userId);
-
-      const currentDayMeals = currentMealsData || [];
-
-      if (loadDayMode === 'swap') {
-        const sourceDate = selectedSourceDate;
-
-        if (sourceDate === selectedDate) {
-          setShowLoadDayModal(false);
-          return;
-        }
-
-        // Obtener comidas de sourceDate
-        const { data: sourceMealsData } = await supabase
-          .from('daily_plan')
-          .select('*')
-          .eq('date', sourceDate)
-          .eq('user_id', userId);
-
-        const sourceDayMeals = sourceMealsData ?? [];
-
-        // Intercambiar comida a comida
-        for (const type of MEAL_TYPES) {
-          const cMeal = currentDayMeals.find(m => m.meal_type === type);
-          const sMeal = sourceDayMeals.find((m: any) => m.meal_type === type);
-
-          const skipCurrentUpdate = keepCompletedMeals && cMeal?.is_completed;
-          const skipSourceUpdate = keepCompletedMeals && sMeal?.is_completed;
-
-          if (sMeal && !skipCurrentUpdate) {
-            if (cMeal) {
-              await supabase.from('daily_plan').update({
-                title: sMeal.title,
-                ingredients: sMeal.ingredients,
-                recipe_url: sMeal.recipe_url || null,
-                is_free_meal: !!sMeal.is_free_meal,
-                free_meal_label: sMeal.free_meal_label || null,
-              }).eq('id', cMeal.id);
-            } else {
-              await supabase.from('daily_plan').insert([{
-                date: selectedDate,
-                meal_type: type,
-                title: sMeal.title,
-                ingredients: sMeal.ingredients,
-                recipe_url: sMeal.recipe_url || null,
-                is_free_meal: !!sMeal.is_free_meal,
-                free_meal_label: sMeal.free_meal_label || null,
-                is_completed: false,
-                user_id: userId,
-                rating: 5,
-              }]);
-            }
-          }
-
-          if (cMeal && !skipSourceUpdate) {
-            if (sMeal?.id) {
-              await supabase.from('daily_plan').update({
-                title: cMeal.title,
-                ingredients: cMeal.ingredients,
-                recipe_url: cMeal.recipe_url || null,
-                is_free_meal: !!cMeal.is_free_meal,
-                free_meal_label: cMeal.free_meal_label || null,
-              }).eq('id', sMeal.id);
-            } else {
-              await supabase.from('daily_plan').insert([{
-                date: sourceDate,
-                meal_type: type,
-                title: cMeal.title,
-                ingredients: cMeal.ingredients,
-                recipe_url: cMeal.recipe_url || null,
-                is_free_meal: !!cMeal.is_free_meal,
-                free_meal_label: cMeal.free_meal_label || null,
-                is_completed: false,
-                user_id: userId,
-                rating: 5,
-              }]);
-            }
-          }
-        }
-        setCopiedKey('day_swapped');
-      } else {
-        const sourceDay = availableSourceDays.find((day) => day.date === selectedSourceDate);
-        for (const tMeal of sourceDay?.meals ?? []) {
-          const existing = currentDayMeals.find(m => m.meal_type === tMeal.meal_type);
-
-          if (keepCompletedMeals && existing?.is_completed) {
-            continue;
-          }
-
-          if (existing) {
-            await supabase.from('daily_plan').update({
-              title: tMeal.title,
-              ingredients: tMeal.ingredients,
-              recipe_url: tMeal.recipe_url || null,
-              is_free_meal: !!tMeal.is_free_meal,
-              free_meal_label: tMeal.free_meal_label || null,
-            }).eq('id', existing.id);
-          } else {
-            await supabase.from('daily_plan').insert([{
-              date: selectedDate,
-              meal_type: tMeal.meal_type,
-              title: tMeal.title,
-              ingredients: tMeal.ingredients,
-              recipe_url: tMeal.recipe_url || null,
-              is_free_meal: !!tMeal.is_free_meal,
-              free_meal_label: tMeal.free_meal_label || null,
-              is_completed: false,
-              user_id: userId,
-              rating: 5,
-            }]);
-          }
-        }
-        setCopiedKey('day_applied');
+      try {
+        const { error } = await supabase.rpc('copy_or_swap_daily_plan_day', {
+          target_user: userId,
+          source_date: sourceDate,
+          target_date: selectedDate,
+          operation: loadDayMode,
+          keep_completed: keepCompletedMeals,
+        });
+        if (error) throw error;
+      } catch {
+        if (!guard.isCurrent(mutation)) return;
+        setShowLoadDayModal(false);
+        setPlanRefreshRequired(true);
+        setPlanError('No se pudo confirmar la operación. Recarga la vista antes de continuar.');
+        return;
       }
-
-      await fetchData(selectedDate);
+      if (!guard.isCurrent(mutation)) return;
       setShowLoadDayModal(false);
-      setTimeout(() => setCopiedKey(null), 2500);
-    } catch (err) {
-      console.error('Error aplicando menú del día:', err);
+      setPlanRefreshRequired(true);
+      setCopiedKey(loadDayMode === 'swap' ? 'day_swapped' : 'day_applied');
+      setTimeout(() => {
+        if (guard.isCurrent(mutation)) setCopiedKey(null);
+      }, 2500);
+      try {
+        if (!(await fetchData(selectedDate))) throw new Error('No se pudo recargar el plan');
+        if (!guard.isCurrent(mutation)) return;
+        setPlanRefreshRequired(false);
+      } catch {
+        if (!guard.isCurrent(mutation)) return;
+        setLoading(false);
+        setPlanError('El menú se aplicó, pero la vista no se pudo actualizar. Recarga la vista.');
+      }
     } finally {
-      setApplyingDayChange(false);
+      if (guard.isGenerationCurrent(mutation.generation)) {
+        lock.release();
+        setApplyingDayChange(false);
+        setMutatingPlan(false);
+      }
     }
   };
 
@@ -961,7 +900,7 @@ export default function Home() {
         <div className="flex items-start justify-between gap-4 mb-3">
           {currentTab === 'plan' ? (
             <p className="min-w-0 flex-1 text-base font-medium italic leading-snug text-slate-800">
-              "{MOTIVATIONAL_QUOTES[quoteIndex]}"
+              &quot;{MOTIVATIONAL_QUOTES[quoteIndex]}&quot;
             </p>
           ) : (
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
@@ -1016,6 +955,8 @@ export default function Home() {
       {/* VISTA 1: PLAN DIARIO */}
       {currentTab === 'plan' && (
         <section className="px-5 mt-6">
+          {planError && <p className="mb-3 text-sm text-rose-700" role="alert">{planError}</p>}
+          {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-slate-800 tracking-wide">Menú del día</h2>
@@ -1028,7 +969,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void loadAvailableSourceDays()}
-                disabled={isHistoricalDay}
+                disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                 className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Cargar menú de otro día o intercambiar"
               >
@@ -1037,7 +978,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setShowAddMealModal(true)}
-                disabled={isHistoricalDay}
+                disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                 className="text-[11px] text-pink-600 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-pink-200/60 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Añadir comida libre"
               >
@@ -1045,7 +986,7 @@ export default function Home() {
                 <span>Añadir libre</span>
               </button>
               <span className="text-xs text-pink-500 bg-pink-50 px-3 py-1 rounded-full font-medium">
-                {meals.filter(m => m.is_completed).length} de {meals.length} hecho
+                {Object.values(groupedMeals).filter(options => options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} hecho
               </span>
             </div>
           </div>
@@ -1060,7 +1001,7 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
                 <button
                   onClick={() => void loadAvailableSourceDays()}
-                  disabled={isHistoricalDay}
+                  disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-400 to-purple-400 text-white text-xs font-semibold rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-all disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowLeftRight size={14} />
@@ -1068,7 +1009,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={() => setShowAddMealModal(true)}
-                  disabled={isHistoricalDay}
+                  disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-2xl transition-all disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus size={14} />
@@ -1078,7 +1019,11 @@ export default function Home() {
             </div>
           ) : (
             <div className="space-y-3.5">
-              {meals.map((meal) => {
+              {Object.entries(groupedMeals).map(([mealType, options]) => (
+                <section key={mealType} aria-label={mealType} className="space-y-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-purple-600">{mealType}</h3>
+                  <div role={options.length > 1 ? 'radiogroup' : undefined} aria-label={mealType} className="space-y-2">
+                  {options.map((meal, optionIndex) => {
                 const review = reviews[meal.title];
                 const isSelectedRecipe = recipes.some(r => r.title === meal.title);
 
@@ -1096,14 +1041,16 @@ export default function Home() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 pr-3">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-600 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-100">
-                            {meal.meal_type}
-                          </span>
+                          {options.length > 1 && (
+                            <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2.5 py-0.5 rounded-full">
+                              Opción {optionIndex + 1}
+                            </span>
+                          )}
                           
                           {/* Badge de comida libre con opción de alternar */}
                           <button
                             onClick={() => toggleMealIsFree(meal.id, meal.is_free_meal)}
-                            disabled={isHistoricalDay}
+                            disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                             className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
                               meal.is_free_meal
                                 ? 'text-amber-700 bg-amber-100/70 border-amber-200 hover:bg-amber-100'
@@ -1138,7 +1085,7 @@ export default function Home() {
                               <select
                                 value={isSelectedRecipe ? meal.title : '__custom__'}
                                 onChange={(e) => handleSelectRecipeForMeal(meal.id, e.target.value)}
-                                disabled={isHistoricalDay}
+                                disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
                                 className="w-full text-xs appearance-none bg-amber-50/70 hover:bg-amber-50 border border-amber-200/90 text-slate-700 rounded-2xl py-2 pl-3 pr-8 font-medium focus:outline-none focus:ring-1 focus:ring-pink-300 focus:border-pink-300 transition-colors"
                               >
                                 <option value="__custom__">
@@ -1194,14 +1141,31 @@ export default function Home() {
 
                         {review?.notes && (
                           <p className="text-[11px] text-purple-700 italic mt-2 bg-purple-50/50 p-2 rounded-xl border border-purple-100/50">
-                            "{review.notes}"
+                            &quot;{review.notes}&quot;
                           </p>
                         )}
                       </div>
 
                       <button
-                        onClick={() => toggleComplete(meal.id, meal.is_completed)}
-                        disabled={isHistoricalDay}
+                        onClick={() => void selectMealOption(meal.id, meal.is_completed)}
+                        role={options.length > 1 ? 'radio' : undefined}
+                        aria-checked={options.length > 1 ? meal.is_completed : undefined}
+                        aria-pressed={options.length === 1 ? meal.is_completed : undefined}
+                        aria-label={options.length > 1 ? `Opción ${optionIndex + 1}: ${meal.title}` : `Completar ${meal.title}`}
+                        tabIndex={options.length === 1 || meal.is_completed || (!options.some(option => option.is_completed) && optionIndex === 0) ? 0 : -1}
+                        onKeyDown={event => {
+                          if (options.length === 1 || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+                          event.preventDefault();
+                          if (planMutationBusyRef.current.isBusy() || planRefreshRequired) return;
+                          const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+                          const nextIndex = (optionIndex + direction + options.length) % options.length;
+                          const radios = event.currentTarget.closest('[role="radiogroup"]')?.querySelectorAll<HTMLButtonElement>('button[role="radio"]');
+                          radios?.[nextIndex]?.focus();
+                          const nextMeal = options[nextIndex];
+                          if (!nextMeal.is_completed) void selectMealOption(nextMeal.id, false);
+                        }}
+                        disabled={selectedDate !== madridDateString() || loading}
+                        aria-disabled={mutatingPlan || planRefreshRequired}
                         className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
                           meal.is_completed
                             ? 'bg-pink-400 text-white shadow-md shadow-pink-200'
@@ -1213,7 +1177,10 @@ export default function Home() {
                     </div>
                   </div>
                 );
-              })}
+                  })}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </section>
@@ -1237,7 +1204,7 @@ export default function Home() {
             {reviewedItems.length === 0 ? (
               <div className="text-center py-6 text-slate-400 text-xs font-light">
                 <p>Todavía no has añadido notas a las comidas.</p>
-                <p className="mt-1 text-[11px]">Pulsa en "Añadir nota" en cualquier plato del menú diario para empezar.</p>
+                <p className="mt-1 text-[11px]">Pulsa en &quot;Añadir nota&quot; en cualquier plato del menú diario para empezar.</p>
               </div>
             ) : (
               <>
@@ -1314,7 +1281,7 @@ export default function Home() {
 
                     {rev.notes ? (
                       <p className="text-xs text-purple-800 bg-purple-50/60 p-2.5 rounded-2xl border border-purple-100/60 my-2 leading-relaxed italic">
-                        "{rev.notes}"
+                        &quot;{rev.notes}&quot;
                       </p>
                     ) : (
                       <p className="text-xs text-slate-400 italic my-2">Sin texto de nota (solo valoración)</p>
@@ -1436,6 +1403,7 @@ export default function Home() {
               </button>
             </div>
 
+            {planError && <p className="mb-3 text-sm text-rose-700" role="alert">{planError}</p>}
             <div className="space-y-3.5 mb-5">
               <div>
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
@@ -1487,7 +1455,7 @@ export default function Home() {
 
             <button
               onClick={handleAddFreeMeal}
-              disabled={savingNewMeal || isHistoricalDay}
+              disabled={savingNewMeal || isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity"
             >
               {savingNewMeal ? 'Guardando...' : 'Añadir a este día 🎉'}
@@ -1517,6 +1485,7 @@ export default function Home() {
               </button>
             </div>
 
+            {planError && <p className="mb-3 text-sm text-rose-700" role="alert">{planError}</p>}
             {/* Selector de Modo: Copiar vs Intercambiar */}
             <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100/80 rounded-2xl mb-4 text-xs font-medium">
               <button
@@ -1528,7 +1497,7 @@ export default function Home() {
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <span>📥 Copiar a hoy</span>
+                <span>📥 Copiar a este día</span>
               </button>
               <button
                 type="button"
@@ -1545,8 +1514,8 @@ export default function Home() {
 
             <p className="text-[11px] text-slate-500 mb-2 font-medium">
               {loadDayMode === 'copy' 
-                ? '¿Qué menú semanal quieres cargar en este día?' 
-                : '¿Con qué día de la semana quieres intercambiar?'}
+                ? 'Puedes copiar un día anterior sin modificarlo. ¿Qué menú quieres cargar en este día?' 
+                : 'Intercambiar solo permite hoy o fechas futuras. ¿Con qué día quieres intercambiar?'}
             </p>
 
             {/* Lista de Días Disponibles */}
@@ -1561,8 +1530,9 @@ export default function Home() {
               )}
               {availableSourceDays.map((dayData) => {
                 const isSelected = selectedSourceDate === dayData.date;
-                const lunchMeal = dayData.meals.find(m => m.meal_type === 'ALMUERZO');
-                const dinnerMeal = dayData.meals.find(m => m.meal_type === 'CENA');
+                const dayGroups = groupMealOptions(dayData.meals);
+                const lunchTitles = (dayGroups.ALMUERZO ?? []).map(meal => meal.title).join(' / ');
+                const dinnerTitles = (dayGroups.CENA ?? []).map(meal => meal.title).join(' / ');
 
                 return (
                   <button
@@ -1588,8 +1558,8 @@ export default function Home() {
                       )}
                     </div>
                     <div className="text-[11px] text-slate-500 space-y-0.5 font-light">
-                      <div className="truncate">🥗 <span className="font-medium text-slate-600">Almuerzo:</span> {lunchMeal?.title}</div>
-                      <div className="truncate">🍲 <span className="font-medium text-slate-600">Cena:</span> {dinnerMeal?.title}</div>
+                      <div className="truncate">🥗 <span className="font-medium text-slate-600">Almuerzo:</span> {lunchTitles}</div>
+                      <div className="truncate">🍲 <span className="font-medium text-slate-600">Cena:</span> {dinnerTitles}</div>
                     </div>
                   </button>
                 );
@@ -1616,7 +1586,7 @@ export default function Home() {
 
             <button
               onClick={handleApplyDayMenu}
-              disabled={applyingDayChange || loadingSourceDays || !selectedSourceDate || isHistoricalDay || (loadDayMode === 'swap' && isHistoricalDate(selectedSourceDate))}
+              disabled={applyingDayChange || mutatingPlan || loading || planRefreshRequired || loadingSourceDays || !selectedSourceDate || isHistoricalDay || (loadDayMode === 'swap' && isHistoricalDate(selectedSourceDate))}
               className="w-full py-3 bg-gradient-to-r from-pink-400 to-purple-400 text-white font-semibold text-xs rounded-2xl shadow-md shadow-pink-200 hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
             >
               {applyingDayChange ? (

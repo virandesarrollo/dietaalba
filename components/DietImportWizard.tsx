@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Clipboard, Upload, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
+import { createMonotonicGuard, isValidCalendarDate, isValidDateRange } from '@/lib/diet-import-wizard-state.js';
 import {
   MEAL_TYPES,
   WEEKDAYS,
@@ -11,6 +13,7 @@ import {
   stablePlanJson,
   validateWeeklyPlan,
   type MealType,
+  type ImportedMealOption,
   type Weekday,
   type WeeklyPlan,
 } from '@/lib/diet-import.js';
@@ -20,6 +23,8 @@ import {
   parseTabularText,
   type ImportWarning,
 } from '@/lib/diet-import-parser.js';
+
+type OptionKeys = Record<Weekday, Record<MealType, string[]>>;
 
 type DietImportWizardProps = {
   open: boolean;
@@ -61,13 +66,16 @@ function formatImportDate(value: string) {
   return IMPORT_DATE_FORMATTER.format(new Date(year, month - 1, day));
 }
 
-function isPreparedResponse(value: unknown): value is Omit<PreparedImport, 'patientId' | 'startDate' | 'planJson' | 'plan'> {
-  if (!value || typeof value !== 'object') return false;
+function isPreparedResponse(value: unknown, startDate: string): value is Omit<PreparedImport, 'patientId' | 'startDate' | 'planJson' | 'plan'> {
+  if (!value || typeof value !== 'object' || !isValidCalendarDate(startDate)) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.token === 'string'
     && UUID_PATTERN.test(candidate.token)
     && typeof candidate.end_date === 'string'
     && DATE_PATTERN.test(candidate.end_date)
+    && isValidCalendarDate(candidate.end_date)
+    && candidate.end_date >= startDate
+    && isValidDateRange(startDate, candidate.end_date)
     && Number.isInteger(candidate.delete_count)
     && (candidate.delete_count as number) >= 0
     && Number.isInteger(candidate.create_count)
@@ -82,12 +90,35 @@ function clonePlan(plan: WeeklyPlan): WeeklyPlan {
   return JSON.parse(stablePlanJson(plan)) as WeeklyPlan;
 }
 
+function createOptionKeys(plan: WeeklyPlan, nextKey: () => string): OptionKeys {
+  return Object.fromEntries(WEEKDAYS.map((weekday) => [
+    weekday,
+    Object.fromEntries(MEAL_TYPES.map((mealType) => {
+      const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+      return [mealType, group.options.map(() => nextKey())];
+    })),
+  ])) as OptionKeys;
+}
+
+function createInitialOptionKeys(plan: WeeklyPlan): OptionKeys {
+  return Object.fromEntries(WEEKDAYS.map((weekday) => [
+    weekday,
+    Object.fromEntries(MEAL_TYPES.map((mealType) => {
+      const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+      return [mealType, group.options.map((_, index) => `initial-${weekday}-${mealType}-${index}`)];
+    })),
+  ])) as OptionKeys;
+}
+
 export function DietImportWizard({ open, patientId, patientName, onClose, onImported }: DietImportWizardProps) {
   const today = localDateString();
   const [step, setStep] = useState(0);
   const [sourceKind, setSourceKind] = useState<'file' | 'external'>('file');
   const [pastedJson, setPastedJson] = useState('');
   const [plan, setPlan] = useState<WeeklyPlan>(() => emptyWeeklyPlan());
+  const optionKeyCounterRef = useRef(0);
+  const nextOptionKey = () => `diet-option-${optionKeyCounterRef.current++}`;
+  const [optionKeys, setOptionKeys] = useState<OptionKeys>(() => createInitialOptionKeys(plan));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<ImportWarning[]>([]);
   const [startDate, setStartDate] = useState(today);
@@ -97,6 +128,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [promptCopyStatus, setPromptCopyStatus] = useState('');
+  const [fileReadGuard] = useState(() => createMonotonicGuard());
   const dialogRef = useRef<HTMLDivElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
   const rpcGuardRef = useRef(false);
@@ -110,17 +142,26 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
     && prepared.planJson === planJson
     ? prepared
     : null;
+  const visibleStep = step === 2 && !activePrepared ? 1 : step;
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     initialFocusRef.current?.focus();
-    return () => previousFocus?.focus();
-  }, []);
+    return () => {
+      fileReadGuard.invalidate();
+      previousFocus?.focus();
+    };
+  }, [fileReadGuard]);
+
+  useEffect(() => {
+    if (!open) fileReadGuard.invalidate();
+  }, [fileReadGuard, open]);
 
   if (!open) return null;
 
   function requestClose() {
-    if (submitting || rpcGuardRef.current) return;
+    if (submitting || parsing || rpcGuardRef.current) return;
+    fileReadGuard.invalidate();
     onClose();
   }
 
@@ -161,16 +202,22 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
       setMessage('El archivo no contiene texto suficiente. Usa el prompt externo y pega el JSON resultante.');
     } else {
       setPlan(result.plan);
+      setOptionKeys(createOptionKeys(result.plan, nextOptionKey));
+      setPrepared(null);
+      setConfirmed(false);
       setMessage('Contenido leído. Revisa todas las comidas antes de confirmar.');
       setStep(1);
     }
   }
 
   async function readFile(file: File) {
+    if (submitting || rpcGuardRef.current) return;
+    const requestToken = fileReadGuard.begin();
     setParsing(true);
     setMessage('Leyendo y validando el archivo…');
     try {
       if (file.type.startsWith('image/')) {
+        if (!fileReadGuard.isCurrent(requestToken)) return;
         setSourceKind('external');
         setWarnings([]);
         setMessage('Las imágenes no se procesan aquí. Usa el prompt y pega después el JSON.');
@@ -178,7 +225,9 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
       }
       if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
         const { extractPdf } = await import('@/lib/diet-import-pdf');
+        if (!fileReadGuard.isCurrent(requestToken)) return;
         const extracted = await extractPdf(file);
+        if (!fileReadGuard.isCurrent(requestToken)) return;
         const parsed = parseTabularText(extracted.text);
         const needsExternal = extracted.warnings.includes('pdf-needs-external-conversion');
         acceptParsed({
@@ -191,23 +240,49 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
         return;
       }
       const text = await file.text();
+      if (!fileReadGuard.isCurrent(requestToken)) return;
       acceptParsed(/\.json$/i.test(file.name) || file.type === 'application/json'
         ? parseImportedJson(text)
         : parseTabularText(text));
     } catch {
+      if (!fileReadGuard.isCurrent(requestToken)) return;
       setMessage('No se pudo leer el archivo localmente. Puedes usar el prompt externo.');
       setSourceKind('external');
     } finally {
-      setParsing(false);
+      if (fileReadGuard.isCurrent(requestToken)) setParsing(false);
     }
   }
 
   function parsePastedJson() {
+    if (parsing || submitting || rpcGuardRef.current) return;
+    fileReadGuard.invalidate();
     if (!pastedJson.trim()) {
       setMessage('Pega primero el JSON que quieres validar.');
       return;
     }
     acceptParsed(parseImportedJson(pastedJson));
+  }
+
+  function changePastedJson(value: string) {
+    if (parsing || submitting || rpcGuardRef.current) return;
+    fileReadGuard.invalidate();
+    setPastedJson(value);
+  }
+
+  function retryFileSource() {
+    if (parsing || submitting || rpcGuardRef.current) return;
+    fileReadGuard.invalidate();
+    setSourceKind('file');
+    setErrors({});
+    setWarnings([]);
+    setMessage('Puedes seleccionar otro archivo.');
+  }
+
+  function changeStartDate(value: string) {
+    if (parsing || submitting || rpcGuardRef.current) return;
+    setStartDate(value);
+    setPrepared(null);
+    setConfirmed(false);
   }
 
   async function copyExternalPrompt() {
@@ -245,15 +320,81 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
     });
   }
 
-  function updateMeal(weekday: Weekday, mealType: MealType, field: 'title' | 'ingredients' | 'recipe_url', value: string) {
+  function updateOption(weekday: Weekday, mealType: MealType, index: number, field: keyof ImportedMealOption, value: string) {
+    if (submitting || parsing || rpcGuardRef.current) return;
     setPrepared(null);
     setConfirmed(false);
+    setErrors({});
     setPlan((current) => ({
       ...current,
-      [weekday]: current[weekday].map((meal) => (
-        meal.meal_type === mealType ? { ...meal, [field]: value } : meal
+      [weekday]: current[weekday].map((group) => (
+        group.meal_type === mealType
+          ? { ...group, options: group.options.map((option, optionIndex) => optionIndex === index ? { ...option, [field]: value } : option) }
+          : group
       )),
     }));
+  }
+
+  function addOption(weekday: Weekday, mealType: MealType) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+    if (group.options.length >= MAX_MEAL_OPTIONS) return;
+    setPrepared(null);
+    setConfirmed(false);
+    setErrors({});
+    setPlan((current) => ({
+      ...current,
+      [weekday]: current[weekday].map((candidate) => candidate.meal_type === mealType
+        ? { ...candidate, options: [...candidate.options, { title: '', ingredients: '', recipe_url: '' }] }
+        : candidate),
+    }));
+    setOptionKeys((current) => ({
+      ...current,
+      [weekday]: { ...current[weekday], [mealType]: [...current[weekday][mealType], nextOptionKey()] },
+    }));
+  }
+
+  function removeOption(weekday: Weekday, mealType: MealType, index: number) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+    if (group.options.length <= 1) return;
+    setPrepared(null);
+    setConfirmed(false);
+    setErrors({});
+    setPlan((current) => ({
+      ...current,
+      [weekday]: current[weekday].map((candidate) => candidate.meal_type === mealType
+        ? { ...candidate, options: candidate.options.filter((_, optionIndex) => optionIndex !== index) }
+        : candidate),
+    }));
+    setOptionKeys((current) => ({
+      ...current,
+      [weekday]: { ...current[weekday], [mealType]: current[weekday][mealType].filter((_, optionIndex) => optionIndex !== index) },
+    }));
+  }
+
+  function moveOption(weekday: Weekday, mealType: MealType, index: number, direction: -1 | 1) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= group.options.length) return;
+    setPrepared(null);
+    setConfirmed(false);
+    setErrors({});
+    setPlan((current) => ({
+      ...current,
+      [weekday]: current[weekday].map((candidate) => {
+        if (candidate.meal_type !== mealType) return candidate;
+        const options = [...candidate.options];
+        [options[index], options[targetIndex]] = [options[targetIndex], options[index]];
+        return { ...candidate, options };
+      }),
+    }));
+    setOptionKeys((current) => {
+      const keys = [...current[weekday][mealType]];
+      [keys[index], keys[targetIndex]] = [keys[targetIndex], keys[index]];
+      return { ...current, [weekday]: { ...current[weekday], [mealType]: keys } };
+    });
   }
 
   function validateReview() {
@@ -269,7 +410,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
   }
 
   async function prepareImport() {
-    if (rpcGuardRef.current || !validateReview() || !patientId || startDate < today) return;
+    if (rpcGuardRef.current || parsing || submitting || !isValidCalendarDate(startDate) || !validateReview() || !patientId || startDate < today) return;
     rpcGuardRef.current = true;
     setSubmitting(true);
     setMessage('');
@@ -286,7 +427,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
         setMessage('No se pudo preparar la importación. Revisa permisos, fecha y contenido.');
         return;
       }
-      if (!isPreparedResponse(data?.[0])) {
+      if (!isPreparedResponse(data?.[0], startDate)) {
         setPrepared(null);
         setMessage('El servidor devolvió una confirmación no válida. No se aplicó ningún cambio.');
         return;
@@ -348,21 +489,21 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
             <h2 id="diet-import-title" className="mt-1 text-2xl font-bold text-slate-800">Asistente de importación</h2>
             <p id="diet-import-description" className="mt-1 text-sm text-slate-500">Importa, revisa y confirma la sustitución de la dieta futura.</p>
             <ol className="mt-4 flex flex-wrap gap-2 text-xs">
-              {STEPS.map((label, index) => <li key={label} className={`rounded-full px-3 py-1.5 ${index === step ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}. {label}</li>)}
+              {STEPS.map((label, index) => <li key={label} className={`rounded-full px-3 py-1.5 ${index === visibleStep ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}. {label}</li>)}
             </ol>
           </div>
-          <button ref={initialFocusRef} type="button" onClick={requestClose} disabled={submitting} aria-label="Cerrar" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X /></button>
+          <button ref={initialFocusRef} type="button" onClick={requestClose} disabled={submitting || parsing} aria-label="Cerrar" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X /></button>
         </header>
 
         <div className="p-5 sm:p-7">
           {message && <p role="status" className="mb-5 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{message}</p>}
 
-          {step === 0 && <section>
+          {visibleStep === 0 && <section>
             <h3 className="text-lg font-bold text-slate-800">Origen y fecha</h3>
             <div className="mt-4 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2">
               <p className="text-sm text-slate-600">Paciente<br /><strong>{patientName}</strong></p>
               <label className="text-sm font-semibold">Fecha inicial
-                <input type="date" value={startDate} min={today} disabled={submitting || parsing} onChange={(event) => { setStartDate(event.target.value); setPrepared(null); setConfirmed(false); }} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-4 py-2" />
+                <input type="date" value={startDate} min={today} disabled={submitting || parsing} onChange={(event) => changeStartDate(event.target.value)} className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-4 py-2" />
               </label>
             </div>
             <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-rose-200 bg-rose-50/50 p-8 text-sm font-semibold text-rose-600">
@@ -390,58 +531,84 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
               <p className="text-sm text-slate-600">Adjunta el archivo a la herramienta externa elegida y usa este prompt:</p>
               <textarea readOnly rows={7} value={externalPrompt} className="w-full rounded-2xl border border-slate-200 p-3 text-xs" />
               <div className="flex flex-wrap items-center gap-3">
-                <button type="button" onClick={() => void copyExternalPrompt()} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
+                <button type="button" disabled={parsing || submitting} onClick={() => void copyExternalPrompt()} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm"><Clipboard size={16} /> Copiar prompt y esquema</button>
                 <span aria-live="polite" role="status" className="text-sm font-semibold text-slate-600">{promptCopyStatus}</span>
               </div>
               <label className="block text-sm font-semibold">Pegar JSON
-                <textarea value={pastedJson} onChange={(event) => setPastedJson(event.target.value)} rows={8} className="mt-2 w-full rounded-2xl border border-slate-200 p-3 font-mono text-xs" />
+                <textarea value={pastedJson} disabled={parsing || submitting} onChange={(event) => changePastedJson(event.target.value)} rows={8} className="mt-2 w-full rounded-2xl border border-slate-200 p-3 font-mono text-xs" />
               </label>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={parsePastedJson} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white">Validar JSON</button>
-                <button type="button" onClick={() => { setSourceKind('file'); setErrors({}); setWarnings([]); setMessage('Puedes seleccionar otro archivo.'); }} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">Volver a intentar</button>
+                <button type="button" disabled={parsing || submitting} onClick={parsePastedJson} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Validar JSON</button>
+                <button type="button" disabled={parsing || submitting} onClick={retryFileSource} className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">Volver a intentar</button>
               </div>
             </div>}
           </section>}
 
-          {step === 1 && <section>
+          {visibleStep === 1 && <section>
             <h3 className="text-lg font-bold text-slate-800">Revisión</h3>
             <p className="mt-1 text-sm text-slate-500">Los vacíos se resaltan para revisión, pero se permiten. Los errores de longitud o URL deben corregirse.</p>
             {warnings.length > 0 && <ul className="mt-3 text-xs text-amber-700">{warnings.map((warning, index) => <li key={`${warning.code}-${index}`}>• {warning.message}</li>)}</ul>}
             <div className="mt-5 space-y-3">
               {WEEKDAYS.map((weekday, dayIndex) => {
                 const dayInvalid = Object.keys(errors).some((key) => key.startsWith(`${weekday}.`));
-                const completedMeals = plan[weekday].filter((meal) => meal.title.trim() || meal.ingredients.trim()).length;
+                const totalOptions = plan[weekday].reduce((total, group) => total + group.options.length, 0);
                 return <details key={weekday} open={dayInvalid || dayIndex === 0 ? true : undefined} className={`rounded-2xl border ${dayInvalid ? 'border-red-300 bg-red-50/40' : 'border-slate-200'}`}>
                 <summary className="cursor-pointer list-none px-4 py-3 font-bold text-slate-800">
                   <span className="flex items-center justify-between gap-3">
                     {DAY_LABELS[weekday]}
-                    <span className={`text-xs font-medium ${dayInvalid ? 'text-red-600' : 'text-slate-400'}`}>{dayInvalid ? 'Revisar errores' : `${completedMeals}/${MEAL_TYPES.length} comidas`}</span>
+                    <span className={`text-xs font-medium ${dayInvalid ? 'text-red-600' : 'text-slate-400'}`}>{dayInvalid ? 'Revisar errores' : `${MEAL_TYPES.length} comidas · ${totalOptions} opciones`}</span>
                   </span>
                 </summary>
                 <div className="grid gap-3 border-t border-slate-100 p-4 lg:grid-cols-2">
                   {MEAL_TYPES.map((mealType) => {
-                    const meal = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
-                    const prefix = `${weekday}.${mealType}`;
-                    const invalid = Object.keys(errors).some((key) => key.startsWith(prefix));
-                    const empty = !meal.title.trim() && !meal.ingredients.trim();
-                    return <fieldset key={mealType} data-invalid={invalid ? 'true' : undefined} disabled={submitting} className={`rounded-2xl border p-3 ${invalid ? 'border-red-300 bg-red-50' : empty ? 'border-amber-200 bg-amber-50/60' : 'border-slate-100 bg-slate-50'}`}>
+                    const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+                    const groupPrefix = `${weekday}.${mealType}`;
+                    const groupInvalid = Object.keys(errors).some((key) => key === groupPrefix || key.startsWith(`${groupPrefix}.`));
+                    const groupStructuralInvalid = Object.keys(errors).some((key) => key === groupPrefix || key === `${groupPrefix}.options` || key === `${groupPrefix}.meal_type`);
+                    const empty = group.options.every((option) => !option.title.trim() && !option.ingredients.trim());
+                    return <fieldset key={mealType} data-invalid={groupStructuralInvalid ? 'true' : undefined} disabled={submitting || parsing} className={`rounded-2xl border p-3 ${groupInvalid ? 'border-red-300 bg-red-50' : empty ? 'border-amber-200 bg-amber-50/60' : 'border-slate-100 bg-slate-50'}`}>
                       <legend className="px-1 text-xs font-bold text-slate-600">{mealType}</legend>
-                      <input aria-label={`${DAY_LABELS[weekday]} ${mealType} título`} value={meal.title} maxLength={201} onChange={(event) => updateMeal(weekday, mealType, 'title', event.target.value)} placeholder="Plato" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                      <textarea aria-label={`${DAY_LABELS[weekday]} ${mealType} ingredientes`} value={meal.ingredients} maxLength={5001} onChange={(event) => updateMeal(weekday, mealType, 'ingredients', event.target.value)} placeholder="Ingredientes e indicaciones" rows={2} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                      <input aria-label={`${DAY_LABELS[weekday]} ${mealType} URL`} value={meal.recipe_url} onChange={(event) => updateMeal(weekday, mealType, 'recipe_url', event.target.value)} placeholder="https://…" className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                      {Object.entries(errors).filter(([key]) => key.startsWith(prefix)).map(([key, error]) => <p key={key} className="mt-1 text-xs text-red-600">{error}</p>)}
+                      <div className="space-y-3">
+                        {group.options.map((option, optionIndex) => {
+                          const prefix = `${weekday}.${mealType}.options.${optionIndex}`;
+                          const invalid = Object.keys(errors).some((key) => key === prefix || key.startsWith(`${prefix}.`));
+                          const optionNumber = optionIndex + 1;
+                          return <div key={optionKeys[weekday][mealType][optionIndex]} className={`rounded-xl border bg-white p-3 ${invalid ? 'border-red-300' : 'border-slate-200'}`}>
+                            {group.options.length > 1 && <p className="mb-2 text-xs font-bold text-slate-600">Opción {optionNumber}</p>}
+                            {(['title', 'ingredients', 'recipe_url'] as const).map((field) => {
+                              const fieldError = errors[`${prefix}.${field}`];
+                              const errorId = `diet-import-error-${weekday}-${mealType.replaceAll(' ', '-')}-${optionIndex}-${field}`;
+                              const label = field === 'title' ? 'título' : field === 'ingredients' ? 'ingredientes' : 'URL';
+                              const placeholder = field === 'title' ? 'Plato' : field === 'ingredients' ? 'Ingredientes e indicaciones' : 'https://…';
+                              return <div key={field} data-invalid={fieldError ? 'true' : undefined} className={field === 'title' ? undefined : 'mt-2'}>
+                                {field === 'ingredients'
+                                  ? <textarea aria-label={`${DAY_LABELS[weekday]} ${mealType} opción ${optionNumber} ${label}`} aria-invalid={fieldError ? true : undefined} aria-describedby={fieldError ? errorId : undefined} value={option[field]} maxLength={5001} onChange={(event) => updateOption(weekday, mealType, optionIndex, field, event.target.value)} placeholder={placeholder} rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+                                  : <input aria-label={`${DAY_LABELS[weekday]} ${mealType} opción ${optionNumber} ${label}`} aria-invalid={fieldError ? true : undefined} aria-describedby={fieldError ? errorId : undefined} value={option[field]} maxLength={field === 'title' ? 201 : 2049} onChange={(event) => updateOption(weekday, mealType, optionIndex, field, event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />}
+                                {fieldError && <p id={errorId} className="mt-1 text-xs text-red-600">{fieldError}</p>}
+                              </div>;
+                            })}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button type="button" aria-label={`Mover opción ${optionNumber} arriba en ${mealType}`} disabled={submitting || parsing || optionIndex === 0} onClick={() => moveOption(weekday, mealType, optionIndex, -1)} className="min-h-11 min-w-11 rounded-lg bg-slate-100 px-3 text-sm disabled:opacity-40">↑</button>
+                              <button type="button" aria-label={`Mover opción ${optionNumber} abajo en ${mealType}`} disabled={submitting || parsing || optionIndex === group.options.length - 1} onClick={() => moveOption(weekday, mealType, optionIndex, 1)} className="min-h-11 min-w-11 rounded-lg bg-slate-100 px-3 text-sm disabled:opacity-40">↓</button>
+                              <button type="button" aria-label={`Eliminar opción ${optionNumber} de ${mealType}`} disabled={submitting || parsing || group.options.length <= 1} onClick={() => removeOption(weekday, mealType, optionIndex)} className="min-h-11 rounded-lg bg-red-50 px-3 text-sm text-red-700 disabled:opacity-40">Eliminar</button>
+                            </div>
+                          </div>;
+                        })}
+                      </div>
+                      {Object.entries(errors).filter(([key]) => key === groupPrefix || key === `${groupPrefix}.options` || key === `${groupPrefix}.meal_type`).map(([key, error]) => <p key={key} className="mt-1 text-xs text-red-600">{error}</p>)}
+                      <button type="button" aria-label={`Añadir opción a ${mealType}`} disabled={submitting || parsing || group.options.length >= MAX_MEAL_OPTIONS} onClick={() => addOption(weekday, mealType)} className="mt-3 min-h-11 rounded-xl bg-slate-100 px-4 text-sm font-semibold disabled:opacity-40">Añadir opción</button>
                     </fieldset>;
                   })}
                 </div>
               </details>})}
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
-              <button type="button" disabled={submitting} onClick={() => { setMessage('Puedes seleccionar otro archivo o cambiar la fecha.'); setStep(0); }} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-semibold text-slate-700">Volver</button>
-              <button type="button" disabled={submitting} onClick={() => void prepareImport()} className="rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Preparar confirmación</button>
+              <button type="button" disabled={submitting || parsing} onClick={() => { if (parsing || submitting || rpcGuardRef.current) return; fileReadGuard.invalidate(); setMessage('Puedes seleccionar otro archivo o cambiar la fecha.'); setStep(0); }} className="rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-semibold text-slate-700">Volver</button>
+              <button type="button" disabled={submitting || parsing} onClick={() => void prepareImport()} className="rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40">Preparar confirmación</button>
             </div>
           </section>}
 
-          {step === 2 && activePrepared && <section className="mx-auto max-w-xl">
+          {visibleStep === 2 && activePrepared && <section className="mx-auto max-w-xl">
             <h3 className="text-lg font-bold text-slate-800">Confirmación</h3>
             <dl className="mt-5 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-5 text-sm">
               <dt>Paciente</dt><dd className="font-semibold">{patientName}</dd>
