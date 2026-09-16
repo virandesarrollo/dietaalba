@@ -59,6 +59,7 @@ export type AvailableExerciseGroup = {
 
 export function validateWorkoutSet(set: WorkoutSet): WorkoutSet;
 export function adjustWorkoutValue(value: number, delta: number, minimum: number): number;
+export function formatWorkoutDate(date: string): string;
 export function decideFocusTrapTarget<T>(focusable: readonly T[], activeElement: T | null, shiftKey: boolean, activeIsContainer: boolean): T | null;
 export function groupAvailableExercises(
   exercises: readonly GroupedExerciseRow[],

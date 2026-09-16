@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type PersonalAppView, type RoleCode } from '@/lib/authz.js';
-import { adjustWorkoutValue, buildWorkoutExerciseCards, decideFocusTrapTarget, groupAvailableExercises, validateWorkoutSet } from '@/lib/gym-workouts.js';
+import { adjustWorkoutValue, buildWorkoutExerciseCards, decideFocusTrapTarget, formatWorkoutDate, groupAvailableExercises, validateWorkoutSet } from '@/lib/gym-workouts.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { madridDateString } from '@/lib/historical-date.js';
 import { supabase } from '@/lib/supabase';
@@ -45,14 +45,14 @@ function StepControl({ label, value, delta, minimum, suffix, inputStep, onChange
     <div>
       <p className="mb-2 text-center text-xs font-semibold text-slate-500">{label}</p>
       <div className="flex items-center gap-2">
-        <button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">
+        <button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold text-slate-800">
           −
         </button>
         <label className="min-w-0 flex-1">
           <span className="sr-only">{label}</span>
           <input type="number" min={minimum} step={inputStep ?? (minimum < 1 ? 'any' : delta)} value={value} onChange={(event) => onChange(Number(event.target.value))} className="min-h-12 w-full rounded-2xl border text-center font-bold" />
         </label>
-        <button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold">
+        <button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold text-slate-800">
           +
         </button>
       </div>
@@ -390,7 +390,7 @@ export default function TrainingPage() {
           <ChevronRight />
         </button>
       </header>
-      <p className="mb-4 text-center text-sm">{workoutDate}</p>
+      <p className="mb-4 text-center text-sm">{formatWorkoutDate(workoutDate)}</p>
       {feedback && (
         <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-3 text-red-700">
           {feedback}
@@ -419,13 +419,16 @@ export default function TrainingPage() {
                   <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
                     Guardar
                   </button>
-                  <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">
+                  <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100 text-slate-800">
                     Cancelar
+                  </button>
+                  <button type="button" disabled={saving} aria-label={`Eliminar serie ${item.weightKg} kg, ${item.reps} repeticiones`} onClick={() => void deleteSet(rawSet)} className="min-h-12 min-w-12 rounded-2xl bg-rose-50 text-rose-500">
+                    <Trash2 aria-hidden="true" className="mx-auto" />
                   </button>
                 </div>
               </form>
             ) : (
-              <div key={item.id} className="flex items-center gap-2 border-b py-2">
+              <div key={item.id} className="flex items-center border-b py-2">
                 {historical ? (
                   <div className="flex min-h-12 flex-1 items-center justify-between px-2">
                     <b>{item.weightKg} kg</b>
@@ -435,11 +438,6 @@ export default function TrainingPage() {
                   <button type="button" disabled={saving} onClick={() => beginEdit(rawSet)} className="flex min-h-12 flex-1 items-center justify-between rounded-xl px-2 text-left">
                     <b>{item.weightKg} kg</b>
                     <span>{item.reps} reps</span>
-                  </button>
-                )}
-                {!historical && (
-                  <button type="button" disabled={saving} aria-label={`Eliminar serie ${item.weightKg} kg, ${item.reps} repeticiones`} onClick={() => void deleteSet(rawSet)} className="min-h-12 min-w-12 rounded-xl text-rose-500">
-                    <Trash2 aria-hidden="true" className="mx-auto" />
                   </button>
                 )}
               </div>
@@ -455,7 +453,7 @@ export default function TrainingPage() {
                 <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
                   Guardar
                 </button>
-                <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100">
+                <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100 text-slate-800">
                   Cancelar
                 </button>
               </div>
