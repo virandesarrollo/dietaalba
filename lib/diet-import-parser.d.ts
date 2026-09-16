@@ -9,7 +9,7 @@ export type ImportResult = {
 
 export function stripJsonFence(text: string): string;
 export function normalizeWeekday(value: unknown): Weekday | null;
-export function normalizeMealType(value: unknown): MealType | null;
+export function normalizeMealType(value: unknown): string | null;
 export function parseImportedJson(text: string): ImportResult;
 export function parseTabularText(text: string): ImportResult;
 export function buildExternalAiPrompt(): string;

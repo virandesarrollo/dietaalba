@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabase';
 import { MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
 import { createMonotonicGuard, isValidCalendarDate, isValidDateRange } from '@/lib/diet-import-wizard-state.js';
 import {
-  MEAL_TYPES,
   WEEKDAYS,
   emptyWeeklyPlan,
   localDateString,
@@ -24,7 +23,7 @@ import {
   type ImportWarning,
 } from '@/lib/diet-import-parser.js';
 
-type OptionKeys = Record<Weekday, Record<MealType, string[]>>;
+type OptionKeys = Record<Weekday, Record<string, string[]>>;
 
 type DietImportWizardProps = {
   open: boolean;
@@ -93,20 +92,14 @@ function clonePlan(plan: WeeklyPlan): WeeklyPlan {
 function createOptionKeys(plan: WeeklyPlan, nextKey: () => string): OptionKeys {
   return Object.fromEntries(WEEKDAYS.map((weekday) => [
     weekday,
-    Object.fromEntries(MEAL_TYPES.map((mealType) => {
-      const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
-      return [mealType, group.options.map(() => nextKey())];
-    })),
+    Object.fromEntries(plan[weekday].map((group) => [group.meal_type, group.options.map(() => nextKey())])),
   ])) as OptionKeys;
 }
 
 function createInitialOptionKeys(plan: WeeklyPlan): OptionKeys {
   return Object.fromEntries(WEEKDAYS.map((weekday) => [
     weekday,
-    Object.fromEntries(MEAL_TYPES.map((mealType) => {
-      const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
-      return [mealType, group.options.map((_, index) => `initial-${weekday}-${mealType}-${index}`)];
-    })),
+    Object.fromEntries(plan[weekday].map((group) => [group.meal_type, group.options.map((_, index) => `initial-${weekday}-${group.meal_type}-${index}`)])),
   ])) as OptionKeys;
 }
 
@@ -397,6 +390,38 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
     });
   }
 
+  function addGroup(weekday: Weekday) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const mealType = window.prompt('Nombre del grupo de comida')?.trim();
+    if (!mealType || plan[weekday].some((group) => group.meal_type.localeCompare(mealType, 'es', { sensitivity: 'accent' }) === 0)) return;
+    setPrepared(null); setConfirmed(false); setErrors({});
+    setPlan((current) => ({ ...current, [weekday]: [...current[weekday], { meal_type: mealType, options: [{ title: '', ingredients: '', recipe_url: '' }] }] }));
+    setOptionKeys((current) => ({ ...current, [weekday]: { ...current[weekday], [mealType]: [nextOptionKey()] } }));
+  }
+
+  function renameGroup(weekday: Weekday, mealType: string) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const next = window.prompt('Nombre del grupo de comida', mealType)?.trim();
+    if (!next || next === mealType || plan[weekday].some((group) => group.meal_type !== mealType && group.meal_type.localeCompare(next, 'es', { sensitivity: 'accent' }) === 0)) return;
+    setPrepared(null); setConfirmed(false); setErrors({});
+    setPlan((current) => ({ ...current, [weekday]: current[weekday].map((group) => group.meal_type === mealType ? { ...group, meal_type: next } : group) }));
+    setOptionKeys((current) => { const { [mealType]: keys, ...rest } = current[weekday]; return { ...current, [weekday]: { ...rest, [next]: keys } }; });
+  }
+
+  function moveGroup(weekday: Weekday, index: number, direction: -1 | 1) {
+    if (submitting || parsing || rpcGuardRef.current) return;
+    const target = index + direction; if (target < 0 || target >= plan[weekday].length) return;
+    setPrepared(null); setConfirmed(false); setErrors({});
+    setPlan((current) => { const groups = [...current[weekday]]; [groups[index], groups[target]] = [groups[target], groups[index]]; return { ...current, [weekday]: groups }; });
+  }
+
+  function deleteGroup(weekday: Weekday, mealType: string) {
+    if (submitting || parsing || rpcGuardRef.current || plan[weekday].length <= 1) return;
+    setPrepared(null); setConfirmed(false); setErrors({});
+    setPlan((current) => ({ ...current, [weekday]: current[weekday].filter((group) => group.meal_type !== mealType) }));
+    setOptionKeys((current) => { const { [mealType]: _, ...rest } = current[weekday]; return { ...current, [weekday]: rest }; });
+  }
+
   function validateReview() {
     const validation = validateWeeklyPlan(plan);
     setErrors(validation.errors);
@@ -556,18 +581,24 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
                 <summary className="cursor-pointer list-none px-4 py-3 font-bold text-slate-800">
                   <span className="flex items-center justify-between gap-3">
                     {DAY_LABELS[weekday]}
-                    <span className={`text-xs font-medium ${dayInvalid ? 'text-red-600' : 'text-slate-400'}`}>{dayInvalid ? 'Revisar errores' : `${MEAL_TYPES.length} comidas · ${totalOptions} opciones`}</span>
+                    <span className={`text-xs font-medium ${dayInvalid ? 'text-red-600' : 'text-slate-400'}`}>{dayInvalid ? 'Revisar errores' : `${plan[weekday].length} comidas · ${totalOptions} opciones`}</span>
                   </span>
                 </summary>
                 <div className="grid gap-3 border-t border-slate-100 p-4 lg:grid-cols-2">
-                  {MEAL_TYPES.map((mealType) => {
-                    const group = plan[weekday].find((candidate) => candidate.meal_type === mealType)!;
+                  {plan[weekday].map((group, groupIndex) => {
+                    const mealType = group.meal_type;
                     const groupPrefix = `${weekday}.${mealType}`;
                     const groupInvalid = Object.keys(errors).some((key) => key === groupPrefix || key.startsWith(`${groupPrefix}.`));
                     const groupStructuralInvalid = Object.keys(errors).some((key) => key === groupPrefix || key === `${groupPrefix}.options` || key === `${groupPrefix}.meal_type`);
                     const empty = group.options.every((option) => !option.title.trim() && !option.ingredients.trim());
                     return <fieldset key={mealType} data-invalid={groupStructuralInvalid ? 'true' : undefined} disabled={submitting || parsing} className={`rounded-2xl border p-3 ${groupInvalid ? 'border-red-300 bg-red-50' : empty ? 'border-amber-200 bg-amber-50/60' : 'border-slate-100 bg-slate-50'}`}>
                       <legend className="px-1 text-xs font-bold text-slate-600">{mealType}</legend>
+                      <div className="mb-2 flex flex-wrap justify-end gap-1">
+                        <button type="button" aria-label={`Mover grupo ${mealType} arriba`} disabled={submitting || parsing || groupIndex === 0} onClick={() => moveGroup(weekday, groupIndex, -1)} className="min-h-11 rounded-lg bg-slate-100 px-3 text-sm disabled:opacity-40">↑</button>
+                        <button type="button" aria-label={`Mover grupo ${mealType} abajo`} disabled={submitting || parsing || groupIndex === plan[weekday].length - 1} onClick={() => moveGroup(weekday, groupIndex, 1)} className="min-h-11 rounded-lg bg-slate-100 px-3 text-sm disabled:opacity-40">↓</button>
+                        <button type="button" aria-label={`Renombrar grupo ${mealType}`} disabled={submitting || parsing} onClick={() => renameGroup(weekday, mealType)} className="min-h-11 rounded-lg bg-slate-100 px-3 text-sm disabled:opacity-40">Renombrar</button>
+                        <button type="button" aria-label={`Eliminar grupo ${mealType}`} disabled={submitting || parsing || plan[weekday].length <= 1} onClick={() => deleteGroup(weekday, mealType)} className="min-h-11 rounded-lg bg-red-50 px-3 text-sm text-red-700 disabled:opacity-40">Eliminar grupo</button>
+                      </div>
                       <div className="space-y-3">
                         {group.options.map((option, optionIndex) => {
                           const prefix = `${weekday}.${mealType}.options.${optionIndex}`;
@@ -600,6 +631,7 @@ export function DietImportWizard({ open, patientId, patientName, onClose, onImpo
                     </fieldset>;
                   })}
                 </div>
+                <button type="button" aria-label={`Añadir grupo a ${DAY_LABELS[weekday]}`} disabled={submitting || parsing} onClick={() => addGroup(weekday)} className="mx-4 mb-4 min-h-11 rounded-xl bg-slate-100 px-4 text-sm font-semibold disabled:opacity-40">Añadir grupo</button>
               </details>})}
             </div>
             <div className="mt-6 flex flex-wrap gap-3">

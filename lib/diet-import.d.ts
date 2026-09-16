@@ -1,7 +1,6 @@
 export const WEEKDAYS: readonly ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 export type Weekday = (typeof WEEKDAYS)[number];
-export const MEAL_TYPES: readonly ['DESAYUNO', 'MEDIA MAÑANA', 'ALMUERZO', 'MERIENDA', 'CENA', 'POSTRE NOCTURNO'];
-export type MealType = (typeof MEAL_TYPES)[number];
+export type MealType = string;
 
 export type ImportedMealOption = { title: string; ingredients: string; recipe_url: string };
 export type ImportedMealGroup = {
@@ -17,7 +16,12 @@ export type WeeklyPlanInput = Record<string, ImportedMealInput[] | Record<string
 export type ValidationResult =
   | { ok: true; errors: Record<string, never> }
   | { ok: false; errors: Record<string, string> };
-export type ExpandedMeal = ImportedMealOption & { meal_type: MealType; option_order: number; is_completed: false };
+export type ExpandedMeal = ImportedMealOption & {
+  meal_type: MealType;
+  meal_order: number;
+  option_order: number;
+  is_completed: false;
+};
 export type ExpandedPlanDay = { date: string; weekday: Weekday; meals: ExpandedMeal[] };
 
 export function localDateString(date?: Date): string;

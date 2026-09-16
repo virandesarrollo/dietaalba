@@ -16,12 +16,14 @@ export type MealPayloadOption = {
 
 export type MealPayload<T extends string = string> = {
   meal_type: T;
+  meal_order: number;
   options: MealPayloadOption[];
 };
 
 export type SavedMeal<T extends string = string> = {
   id: string;
   meal_type: T;
+  meal_order?: number | null;
   option_order: number;
 };
 
@@ -30,12 +32,19 @@ export function buildMealPayload<T extends string>(
   mealTypes: readonly T[],
 ): MealPayload<T>[];
 
+export function buildMealPayload<T extends string>(
+  drafts: Record<T, MealDraftValue | readonly MealDraftValue[]>,
+  mealTypes: readonly { meal_type: T; options: MealDraftValue | readonly MealDraftValue[] }[],
+): MealPayload<T>[];
+
 export function applySavedMealIds<T extends string>(
   drafts: Record<T, MealDraftValue>,
   savedMeals: readonly SavedMeal[],
+  mealTypes?: readonly T[],
 ): Record<T, MealDraftValue>;
 
 export function applySavedMealIds<T extends string>(
   drafts: Record<T, readonly MealDraftValue[]>,
   savedMeals: readonly SavedMeal[],
+  mealTypes?: readonly T[],
 ): Record<T, MealDraftValue[]>;

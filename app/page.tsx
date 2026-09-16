@@ -50,6 +50,7 @@ type Meal = {
   free_meal_label?: string | null;
   is_completed: boolean;
   option_order?: number | null;
+  meal_order?: number | null;
   created_at?: string | null;
 };
 
@@ -83,7 +84,6 @@ const MOTIVATIONAL_QUOTES = [
   "Siente el progreso, no busques la perfección 🩰",
 ];
 
-const MEAL_TYPES = ['DESAYUNO', 'MEDIA MAÑANA', 'ALMUERZO', 'MERIENDA', 'CENA', 'POSTRE NOCTURNO'];
 
 const parseDateString = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -146,7 +146,7 @@ export default function Home() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const activeDialog = canRateRecipes && activeRecipe ? 'review' : showAddMealModal ? 'add-meal' : showLoadDayModal ? 'load-day' : null;
-  const [newMealType, setNewMealType] = useState<string>('ALMUERZO');
+  const [newMealType, setNewMealType] = useState<string>('');
   const [newMealRecipeTitle, setNewMealRecipeTitle] = useState<string>('');
   const [savingNewMeal, setSavingNewMeal] = useState<boolean>(false);
 
@@ -301,7 +301,7 @@ export default function Home() {
     // 1. Cargar comidas de la fecha seleccionada
     const { data: mealsData, error: mealsError } = await supabase
       .from('daily_plan')
-      .select('id, date, meal_type, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
+      .select('id, date, meal_type, meal_order, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
       .eq('date', targetDate)
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
@@ -428,7 +428,7 @@ export default function Home() {
       try {
         const { data: groupData, error: groupError } = await supabase
           .from('daily_plan')
-          .select('id, date, meal_type, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
+          .select('id, date, meal_type, meal_order, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at')
           .eq('user_id', userId)
           .eq('date', selectedDate)
           .eq('meal_type', mealType);
@@ -566,12 +566,22 @@ export default function Home() {
     if (isHistoricalDay) return;
     const userId = session?.user?.id;
     if (!userId || loading || planRefreshRequired) return;
-    const group = groupedMeals[newMealType] ?? [];
+    const mealType = newMealType.trim();
+    if (mealType.length < 1 || mealType.length > 200) {
+      setPlanError('El nombre del grupo debe tener entre 1 y 200 caracteres.');
+      return;
+    }
+    const existingMealType = Object.keys(groupedMeals).find((type) => (
+      type.localeCompare(mealType, 'es', { sensitivity: 'accent' }) === 0
+    ));
+    const canonicalMealType = existingMealType ?? mealType;
+    const group = groupedMeals[canonicalMealType] ?? [];
     if (group.length >= MAX_MEAL_OPTIONS) {
       setPlanError('Cada comida admite un máximo de 10 opciones.');
       return;
     }
     const nextOptionOrder = Math.max(0, ...group.map(meal => meal.option_order ?? 1)) + 1;
+    const nextMealOrder = group[0]?.meal_order ?? Math.max(0, ...meals.map(meal => meal.meal_order ?? 0)) + 1;
     const lock = planMutationBusyRef.current;
     if (!lock.tryAcquire()) return;
     const guard = planMutationGuardRef.current;
@@ -582,9 +592,10 @@ export default function Home() {
     const rec = recipes.find(recipe => recipe.title === newMealRecipeTitle);
     const newRecord = {
       date: selectedDate,
-      meal_type: newMealType,
+      meal_type: canonicalMealType,
+      meal_order: nextMealOrder,
       option_order: nextOptionOrder,
-      title: rec?.title ?? `${newMealType.charAt(0) + newMealType.slice(1).toLowerCase()} Libre 🎉`,
+      title: rec?.title ?? `${canonicalMealType.charAt(0) + canonicalMealType.slice(1).toLowerCase()} Libre 🎉`,
       ingredients: rec?.ingredients || 'Comida libre',
       recipe_url: rec?.recipe_url || null,
       is_free_meal: true,
@@ -1409,22 +1420,17 @@ export default function Home() {
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
                   Momento del día:
                 </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {MEAL_TYPES.map(type => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setNewMealType(type)}
-                      className={`text-[11px] py-1.5 px-2.5 rounded-xl font-medium border text-center transition-all ${
-                        newMealType === type
-                          ? 'bg-pink-50 border-pink-300 text-pink-600 font-semibold'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {type}
-                    </button>
-                  ))}
-                </div>
+                <input
+                  value={newMealType}
+                  onChange={(event) => setNewMealType(event.target.value)}
+                  list="existing-meal-groups"
+                  maxLength={200}
+                  placeholder="Escribe un grupo o elige uno existente"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700"
+                />
+                <datalist id="existing-meal-groups">
+                  {Object.keys(groupedMeals).map((type) => <option key={type} value={type} />)}
+                </datalist>
               </div>
 
               <div>

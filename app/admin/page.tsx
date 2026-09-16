@@ -45,6 +45,7 @@ type DailyPlanRow = {
   recipe_url: string | null;
   is_completed: boolean;
   option_order: number | null;
+  meal_order: number | null;
   created_at: string;
 };
 
@@ -57,17 +58,8 @@ type MealDraft = {
   isCompleted: boolean;
 };
 
-const MEALS = [
-  { key: 'DESAYUNO', label: 'Desayuno', accent: 'bg-amber-50 border-amber-100' },
-  { key: 'MEDIA MAÑANA', label: 'Media mañana', accent: 'bg-orange-50 border-orange-100' },
-  { key: 'ALMUERZO', label: 'Almuerzo', accent: 'bg-emerald-50 border-emerald-100' },
-  { key: 'MERIENDA', label: 'Merienda', accent: 'bg-pink-50 border-pink-100' },
-  { key: 'CENA', label: 'Cena', accent: 'bg-indigo-50 border-indigo-100' },
-  { key: 'POSTRE NOCTURNO', label: 'Postre nocturno', accent: 'bg-purple-50 border-purple-100' },
-] as const;
-
-type MealType = (typeof MEALS)[number]['key'];
-type MealDrafts = Record<MealType, MealDraft[]>;
+type MealType = string;
+type MealDrafts = Record<string, MealDraft[]>;
 
 function createClientKey(): string {
   return crypto.randomUUID();
@@ -78,9 +70,7 @@ function emptyMealDraft(): MealDraft {
 }
 
 function emptyDrafts(): MealDrafts {
-  return Object.fromEntries(
-    MEALS.map(({ key }) => [key, [emptyMealDraft()]]),
-  ) as MealDrafts;
+  return {};
 }
 
 function planContextKey(patientId: string, date: string): string {
@@ -109,6 +99,7 @@ export default function AdminPage() {
   const [selectedDate, setSelectedDate] = useState(madridDateString);
   const isHistoricalDay = isHistoricalDate(selectedDate);
   const [drafts, setDrafts] = useState<MealDrafts>(emptyDrafts);
+  const [mealGroups, setMealGroups] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -256,7 +247,7 @@ export default function AdminPage() {
       requestGenerationRef.current += 1;
       mutationLockRef.current = createMutationLock();
       setCurrentProfile(null); setProfiles([]); setSelectedPatientId(''); setSelectedDate(madridDateString());
-      setDrafts(emptyDrafts()); setAdminViews([]); setAccessError(null); setMessage(null);
+      setDrafts(emptyDrafts()); setMealGroups([]); setAdminViews([]); setAccessError(null); setMessage(null);
       setImportOpen(false); setImportRefreshKey(0); setPlanRetryKey(0); setSaving(false); setLoadingPlan(false);
       setLoadedPlanContext(null); setPlanLoadError(false);
       setLoading(Boolean(userId));
@@ -297,16 +288,16 @@ export default function AdminPage() {
       try {
         const { data, error } = await supabase
           .from('daily_plan')
-          .select('id, meal_type, title, ingredients, recipe_url, is_completed, option_order, created_at')
+          .select('id, meal_type, meal_order, title, ingredients, recipe_url, is_completed, option_order, created_at')
           .eq('user_id', selectedPatientId)
           .eq('date', selectedDate);
         if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return;
         if (error) throw error;
-        const nextDrafts = emptyDrafts();
+        const nextDrafts: MealDrafts = {};
         const groupedRows = groupMealOptions((data ?? []) as DailyPlanRow[]) as Record<string, DailyPlanRow[]>;
-        for (const { key } of MEALS) {
-          const rows = groupedRows[key];
-          if (rows?.length) {
+        const groups = Object.entries(groupedRows).sort(([, left], [, right]) => (left[0]?.meal_order ?? 0) - (right[0]?.meal_order ?? 0));
+        for (const [key, rows] of groups) {
+          if (rows.length) {
             nextDrafts[key] = rows.map((row) => ({
               id: row.id,
               clientKey: createClientKey(),
@@ -318,6 +309,7 @@ export default function AdminPage() {
           }
         }
         setDrafts(nextDrafts);
+        setMealGroups(groups.map(([key]) => key));
         setLoadedPlanContext(planContext);
       } catch {
         if (isAuthCurrent(generation, userId) && requestGeneration === requestGenerationRef.current) {
@@ -344,7 +336,7 @@ export default function AdminPage() {
   const contextDisabled = loadingPlan || saving || importOpen;
   const editingDisabled = !isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay;
 
-  function updateOption(mealType: MealType, index: number, field: 'title' | 'ingredients', value: string) {
+  function updateOption(mealType: string, index: number, field: 'title' | 'ingredients', value: string) {
     if (editingDisabled) return;
     setDrafts((current) => ({
       ...current,
@@ -354,7 +346,7 @@ export default function AdminPage() {
     }));
   }
 
-  function addOption(mealType: MealType) {
+  function addOption(mealType: string) {
     if (editingDisabled) return;
     setDrafts((current) => current[mealType].length >= MAX_MEAL_OPTIONS ? current : ({
       ...current,
@@ -362,7 +354,7 @@ export default function AdminPage() {
     }));
   }
 
-  function removeOption(mealType: MealType, index: number) {
+  function removeOption(mealType: string, index: number) {
     if (editingDisabled) return;
     setDrafts((current) => current[mealType].length <= 1 ? current : ({
       ...current,
@@ -370,7 +362,7 @@ export default function AdminPage() {
     }));
   }
 
-  function moveOption(mealType: MealType, index: number, direction: -1 | 1) {
+  function moveOption(mealType: string, index: number, direction: -1 | 1) {
     if (editingDisabled) return;
     setDrafts((current) => {
       const targetIndex = index + direction;
@@ -381,8 +373,39 @@ export default function AdminPage() {
     });
   }
 
+  function renameGroup(mealType: string) {
+    if (editingDisabled) return;
+    const next = window.prompt('Nombre del grupo', mealType)?.trim();
+    if (!next || next === mealType || drafts[next]) return;
+    setDrafts((current) => {
+      const { [mealType]: options, ...rest } = current;
+      return { ...rest, [next]: options };
+    });
+    setMealGroups((current) => current.map((group) => group === mealType ? next : group));
+  }
+
+  function moveGroup(mealType: string, direction: -1 | 1) {
+    if (editingDisabled) return;
+    setMealGroups((current) => {
+      const index = current.indexOf(mealType); const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current]; [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function deleteGroup(mealType: string) {
+    if (editingDisabled || !window.confirm(`Eliminar el grupo ${mealType}?`)) return;
+    setDrafts((current) => { const { [mealType]: _, ...rest } = current; return rest; });
+    setMealGroups((current) => current.filter((group) => group !== mealType));
+  }
+
   async function savePlan() {
     if (!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay) return;
+    if (mealGroups.length < 1) {
+      setMessage({ type: 'error', text: 'Añade al menos un grupo de comida antes de guardar.' });
+      return;
+    }
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
@@ -395,7 +418,7 @@ export default function AdminPage() {
       const { data, error } = await supabase.rpc('save_daily_plan', {
         target_user: patientSnapshot,
         target_date: dateSnapshot,
-        meals: buildMealPayload(drafts, MEALS.map(({ key }) => key)),
+        meals: buildMealPayload(drafts, mealGroups),
       });
       if (!isAuthCurrent(generation, userId)) return;
       if (error) {
@@ -404,7 +427,7 @@ export default function AdminPage() {
       } else {
         const selection = selectionRef.current;
         if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
-          setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[]) as MealDrafts);
+          setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[], mealGroups) as MealDrafts);
         }
         setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
       }
@@ -590,8 +613,10 @@ export default function AdminPage() {
           )}
 
           <div className={`grid gap-5 md:grid-cols-2 xl:grid-cols-3 ${loadingPlan ? 'pointer-events-none opacity-50' : ''}`}>
-            {MEALS.map(({ key, label, accent }, index) => (
-              <article key={key} className={`rounded-3xl border p-5 shadow-sm ${accent}`}>
+            {mealGroups.map((key, index) => {
+              const label = key;
+              const accent = 'bg-slate-50 border-slate-100';
+              return <article key={`${key}-${index}`} className={`rounded-3xl border p-5 shadow-sm ${accent}`}>
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -602,6 +627,12 @@ export default function AdminPage() {
                   <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/80 text-sm font-bold text-slate-500">
                     {index + 1}
                   </span>
+                </div>
+                <div className="mb-3 flex justify-end gap-1">
+                  <button type="button" onClick={() => moveGroup(key, -1)} disabled={editingDisabled || index === 0} className="min-h-11 min-w-11 rounded-xl disabled:opacity-40" aria-label={`Mover arriba ${label}`}><ArrowUp size={16} /></button>
+                  <button type="button" onClick={() => moveGroup(key, 1)} disabled={editingDisabled || index === mealGroups.length - 1} className="min-h-11 min-w-11 rounded-xl disabled:opacity-40" aria-label={`Mover abajo ${label}`}><ArrowDown size={16} /></button>
+                  <button type="button" onClick={() => renameGroup(key)} disabled={editingDisabled} className="min-h-11 rounded-xl px-2 text-xs disabled:opacity-40">Renombrar</button>
+                  <button type="button" onClick={() => deleteGroup(key)} disabled={editingDisabled} className="min-h-11 min-w-11 rounded-xl text-rose-500 disabled:opacity-40" aria-label={`Eliminar ${label}`}><Trash2 size={16} /></button>
                 </div>
 
                 <div className="space-y-4">
@@ -686,9 +717,21 @@ export default function AdminPage() {
                 >
                   <Plus size={17} /> Añadir opción
                 </button>
-              </article>
-            ))}
+              </article>;
+            })}
           </div>
+
+          <button
+            type="button"
+            disabled={editingDisabled}
+            onClick={() => {
+              const label = window.prompt('Nombre del nuevo grupo de comida')?.trim();
+              if (!label || drafts[label]) return;
+              setDrafts((current) => ({ ...current, [label]: [emptyMealDraft()] }));
+              setMealGroups((current) => [...current, label]);
+            }}
+            className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white/50 px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-50"
+          ><Plus size={17} /> Añadir grupo de comida</button>
 
           <div className="sticky bottom-5 mt-7 flex flex-col justify-end gap-3 sm:flex-row">
             <button
