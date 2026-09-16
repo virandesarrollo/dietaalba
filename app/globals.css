@@ -44,6 +44,7 @@ body { font-family: Arial, Helvetica, sans-serif; }
 
 :is([data-theme='dark'], [data-custom-colors='true']) .bg-slate-50,
 :is([data-theme='dark'], [data-custom-colors='true']) .bg-slate-50\/50,
+:is([data-theme='dark'], [data-custom-colors='true']) .bg-slate-100,
 :is([data-theme='dark'], [data-custom-colors='true']) .bg-rose-50,
 :is([data-theme='dark'], [data-custom-colors='true']) .bg-pink-50,
 :is([data-theme='dark'], [data-custom-colors='true']) .bg-pink-50\/60,

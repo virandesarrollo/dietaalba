@@ -19,6 +19,8 @@ export type WorkoutExerciseRow = {
   id: string;
   exercise_code: string;
   exercise_name_snapshot: string;
+  position: number | null;
+  created_at: string;
 };
 
 export type WorkoutExerciseSetRow = {
@@ -26,6 +28,7 @@ export type WorkoutExerciseSetRow = {
   exercise_code: string;
   weight_kg: number;
   reps: number;
+  is_completed: boolean;
   created_at: string;
 };
 
@@ -33,7 +36,7 @@ export type WorkoutExerciseCard = {
   id: string;
   exerciseCode: string;
   name: string;
-  sets: { id: string; weightKg: number; reps: number }[];
+  sets: { id: string; weightKg: number; reps: number; isCompleted: boolean }[];
 };
 
 export type ExerciseGroupRelation = {

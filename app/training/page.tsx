@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
+import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type PersonalAppView, type RoleCode } from '@/lib/authz.js';
 import { adjustWorkoutValue, buildWorkoutExerciseCards, decideFocusTrapTarget, formatWorkoutDate, groupAvailableExercises, validateWorkoutSet } from '@/lib/gym-workouts.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
@@ -24,12 +25,15 @@ type DailyExercise = {
   id: string;
   exercise_code: string;
   exercise_name_snapshot: string;
+  position: number | null;
+  created_at: string;
 };
 type WorkoutSet = {
   id: string;
   exercise_code: string;
   weight_kg: number;
   reps: number;
+  is_completed: boolean;
   created_at: string;
 };
 type RoleRow = { role_code: string };
@@ -45,14 +49,14 @@ function StepControl({ label, value, delta, minimum, suffix, inputStep, onChange
     <div>
       <p className="mb-2 text-center text-xs font-semibold text-slate-500">{label}</p>
       <div className="flex items-center gap-2">
-        <button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold text-slate-800">
+        <button type="button" aria-label={`Restar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, -delta, minimum))} className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl font-bold text-slate-800">
           −
         </button>
         <label className="min-w-0 flex-1">
           <span className="sr-only">{label}</span>
-          <input type="number" min={minimum} step={inputStep ?? (minimum < 1 ? 'any' : delta)} value={value} onChange={(event) => onChange(Number(event.target.value))} className="min-h-12 w-full rounded-2xl border text-center font-bold" />
+          <input type="number" min={minimum} step={inputStep ?? (minimum < 1 ? 'any' : delta)} value={value} onChange={(event) => onChange(Number(event.target.value))} className="min-h-14 w-full rounded-2xl border text-center text-lg font-bold" />
         </label>
-        <button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-12 min-w-12 rounded-2xl bg-slate-100 text-xl font-bold text-slate-800">
+        <button type="button" aria-label={`Sumar ${label}`} onClick={() => onChange(adjustWorkoutValue(value, delta, minimum))} className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl font-bold text-slate-800">
           +
         </button>
       </div>
@@ -63,6 +67,7 @@ function StepControl({ label, value, delta, minimum, suffix, inputStep, onChange
 
 export default function TrainingPage() {
   const router = useRouter();
+  const confirmDialog = useConfirmDialog();
   const today = madridDateString();
   const [workoutDate, setWorkoutDate] = useState(today);
   const [membership, setMembership] = useState<Membership | null>(null);
@@ -173,7 +178,7 @@ export default function TrainingPage() {
         router.replace('/');
         return;
       }
-      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)').eq('is_active', true).eq('gym_exercise_groups.is_active', true), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', activeUserId).eq('workout_date', requestDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', activeUserId).eq('workout_date', requestDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
+      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)').eq('is_active', true).eq('gym_exercise_groups.is_active', true), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot, position, created_at').eq('user_id', activeUserId).eq('workout_date', requestDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, is_completed, created_at').eq('user_id', activeUserId).eq('workout_date', requestDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
       if (!isCurrent()) return;
       setAppNavigationViews(deriveAppViews(deriveAvailableViews(deriveCapabilities(false, roles), featureCapabilities)));
       setMembership(activeMembership);
@@ -224,7 +229,7 @@ export default function TrainingPage() {
           exercise_code: exercise.code,
           workout_date: workoutDate,
         })
-        .select('id, exercise_code, exercise_name_snapshot')
+        .select('id, exercise_code, exercise_name_snapshot, position, created_at')
         .single();
       if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback('No se pudo añadir el ejercicio.');
@@ -283,8 +288,9 @@ export default function TrainingPage() {
             workout_date: workoutDate,
             weight_kg: validated.weightKg,
             reps: validated.reps,
+            is_completed: false,
           });
-      const result = await query.select('id, exercise_code, weight_kg, reps, created_at').single();
+      const result = await query.select('id, exercise_code, weight_kg, reps, is_completed, created_at').single();
       if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
       if (result.error || !result.data) setFeedback(editingSetId ? 'No se pudo actualizar la serie.' : 'No se pudo guardar la serie.');
       else {
@@ -299,9 +305,66 @@ export default function TrainingPage() {
     }
   }
 
+  async function moveExercise(exercise: DailyExercise, direction: -1 | 1) {
+    if (!membership || historical || mutationLockRef.current) return;
+    const orderedIds = cards.map((card) => card.id);
+    const currentIndex = orderedIds.indexOf(exercise.id);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= orderedIds.length) return;
+    mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
+    setSaving(true);
+    try {
+      setFeedback('');
+      const result = await supabase.rpc('move_my_gym_workout_exercise', { p_exercise_id: exercise.id, p_direction: direction });
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (result.error) setFeedback('No se pudo reordenar el ejercicio.');
+      else {
+        const nextIds = [...orderedIds];
+        [nextIds[currentIndex], nextIds[nextIndex]] = [nextIds[nextIndex], nextIds[currentIndex]];
+        setDailyExercises((current) => nextIds.map((id, index) => ({ ...current.find((item) => item.id === id)!, position: (index + 1) * 10 })));
+      }
+    } finally {
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
+    }
+  }
+
+  async function toggleSetCompleted(set: WorkoutSet) {
+    if (!membership || historical || mutationLockRef.current) return;
+    mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
+    setSaving(true);
+    try {
+      setFeedback('');
+      const result = await supabase
+        .from('gym_workout_sets')
+        .update({ is_completed: !set.is_completed })
+        .eq('id', set.id)
+        .eq('user_id', userId)
+        .eq('group_id', membership.group_id)
+        .eq('workout_date', workoutDate)
+        .eq('exercise_code', set.exercise_code)
+        .select('id, exercise_code, weight_kg, reps, is_completed, created_at')
+        .single();
+      if (authGeneration !== authGenerationRef.current || mutationUserId !== currentUserIdRef.current || mutationGeneration !== workoutGenerationRef.current || mutationDate !== workoutDate) return;
+      if (result.error || !result.data) setFeedback('No se pudo actualizar el estado de la serie.');
+      else setSets((current) => current.map((item) => (item.id === set.id ? result.data as WorkoutSet : item)));
+    } finally {
+      if (mutationToken === mutationTokenRef.current) { mutationLockRef.current = false; setSaving(false); }
+    }
+  }
+
   async function deleteSet(set: WorkoutSet) {
     if (!membership || historical || mutationLockRef.current) return;
-    if (!window.confirm('¿Eliminar esta serie?')) return;
+    if (!(await confirmDialog({ title: 'Eliminar serie', message: '¿Eliminar esta serie?', confirmLabel: 'Eliminar', tone: 'danger' }))) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
     const authGeneration = authGenerationRef.current;
@@ -335,7 +398,7 @@ export default function TrainingPage() {
 
   async function deleteDailyExercise(exercise: DailyExercise) {
     if (!membership || historical || mutationLockRef.current) return;
-    if (!window.confirm('¿Quitar este ejercicio y todas sus series?')) return;
+    if (!(await confirmDialog({ title: 'Quitar ejercicio', message: '¿Quitar este ejercicio y todas sus series?', confirmLabel: 'Quitar', tone: 'danger' }))) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
     const authGeneration = authGenerationRef.current;
@@ -397,77 +460,90 @@ export default function TrainingPage() {
         </p>
       )}
       {historical && <p>El histórico es de solo lectura.</p>}
-      {cards.map((card) => (
-        <article key={card.id} className="mb-4 rounded-3xl bg-white p-5 shadow-sm">
-          <header className="flex min-h-12 items-center justify-between border-b pb-3">
-            <h2 className="font-bold">{card.name}</h2>
+      {cards.map((card, cardIndex) => (
+        <article key={card.id} className="mb-4 rounded-3xl bg-white p-4 shadow-sm">
+          <header className="flex min-h-12 items-center justify-between gap-2 border-b pb-3">
+            <h2 className="min-w-0 flex-1 font-bold">{card.name}</h2>
             {!historical && (
-              <button type="button" disabled={saving} aria-label={`Quitar ${card.name}`} onClick={() => void deleteDailyExercise(dailyExercises.find((exercise) => exercise.id === card.id)!)} className="min-h-12 min-w-12 rounded-xl text-rose-500">
-                <Trash2 aria-hidden="true" className="mx-auto" />
-              </button>
+              <div className="flex shrink-0 gap-1">
+                <button type="button" disabled={saving || cardIndex === 0} aria-label={`Subir ${card.name}`} onClick={() => void moveExercise(dailyExercises.find((exercise) => exercise.id === card.id)!, -1)} className="min-h-12 min-w-12 rounded-xl bg-slate-100 text-slate-800 disabled:opacity-30">
+                  <ArrowUp aria-hidden="true" className="mx-auto" />
+                </button>
+                <button type="button" disabled={saving || cardIndex === cards.length - 1} aria-label={`Bajar ${card.name}`} onClick={() => void moveExercise(dailyExercises.find((exercise) => exercise.id === card.id)!, 1)} className="min-h-12 min-w-12 rounded-xl bg-slate-100 text-slate-800 disabled:opacity-30">
+                  <ArrowDown aria-hidden="true" className="mx-auto" />
+                </button>
+                <button type="button" disabled={saving} aria-label={`Quitar ${card.name}`} onClick={() => void deleteDailyExercise(dailyExercises.find((exercise) => exercise.id === card.id)!)} className="min-h-12 min-w-12 rounded-xl bg-rose-50 text-rose-500">
+                  <Trash2 aria-hidden="true" className="mx-auto" />
+                </button>
+              </div>
             )}
           </header>
           {card.sets.map((item) => {
             const rawSet = sets.find((set) => set.id === item.id)!;
             return editingSetId === item.id ? (
               <form key={item.id} onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="border-b py-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-4">
                   <StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} />
                   <StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} />
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
+                  <button disabled={saving} className="min-h-14 flex-1 rounded-2xl bg-slate-800 text-white">
                     Guardar
                   </button>
-                  <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100 text-slate-800">
+                  <button type="button" onClick={cancelDraft} className="min-h-14 flex-1 rounded-2xl bg-slate-100 text-slate-800">
                     Cancelar
                   </button>
-                  <button type="button" disabled={saving} aria-label={`Eliminar serie ${item.weightKg} kg, ${item.reps} repeticiones`} onClick={() => void deleteSet(rawSet)} className="min-h-12 min-w-12 rounded-2xl bg-rose-50 text-rose-500">
+                  <button type="button" disabled={saving} aria-label={`Eliminar serie ${item.weightKg} kg, ${item.reps} repeticiones`} onClick={() => void deleteSet(rawSet)} className="min-h-14 min-w-14 rounded-2xl bg-rose-50 text-rose-500">
                     <Trash2 aria-hidden="true" className="mx-auto" />
                   </button>
                 </div>
               </form>
             ) : (
-              <div key={item.id} className="flex items-center border-b py-2">
+              <div key={item.id} className="flex items-center gap-2 border-b py-2">
                 {historical ? (
-                  <div className="flex min-h-12 flex-1 items-center justify-between px-2">
-                    <b>{item.weightKg} kg</b>
-                    <span>{item.reps} reps</span>
+                  <div className={`flex min-h-14 flex-1 items-center justify-between px-2 ${item.isCompleted ? 'line-through opacity-50' : ''}`}>
+                    <span aria-label={item.isCompleted ? 'Serie realizada' : 'Serie pendiente'}>{item.isCompleted ? '✓' : '○'}</span>
+                    <b>{item.weightKg} kg</b><span>{item.reps} reps</span>
                   </div>
                 ) : (
-                  <button type="button" disabled={saving} onClick={() => beginEdit(rawSet)} className="flex min-h-12 flex-1 items-center justify-between rounded-xl px-2 text-left">
+                  <>
+                  <button type="button" disabled={saving} aria-pressed={item.isCompleted} aria-label={item.isCompleted ? 'Marcar serie como pendiente' : 'Marcar serie como realizada'} onClick={() => void toggleSetCompleted(rawSet)} className={`min-h-14 min-w-14 rounded-2xl ${item.isCompleted ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                    <Check aria-hidden="true" className={`mx-auto ${item.isCompleted ? 'opacity-100' : 'opacity-25'}`} />
+                  </button>
+                  <button type="button" disabled={saving} onClick={() => beginEdit(rawSet)} className={`flex min-h-14 flex-1 items-center justify-between rounded-xl px-3 text-left ${item.isCompleted ? 'line-through opacity-50' : ''}`}>
                     <b>{item.weightKg} kg</b>
                     <span>{item.reps} reps</span>
                   </button>
+                  </>
                 )}
               </div>
             );
           })}
           {draftExerciseCode === card.exerciseCode && editingSetId === null && (
             <form onSubmit={(event) => void saveDraft(event, card.exerciseCode, card.name)} className="py-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-4">
                 <StepControl label="Peso" value={draftWeight} delta={gymWeightStep} minimum={0.01} suffix="kg" onChange={setDraftWeight} />
                 <StepControl label="Repeticiones" value={draftReps} delta={1} minimum={1} suffix="reps" onChange={setDraftReps} />
               </div>
               <div className="mt-3 flex gap-2">
-                <button disabled={saving} className="min-h-12 flex-1 rounded-2xl bg-slate-800 text-white">
+                <button disabled={saving} className="min-h-14 flex-1 rounded-2xl bg-slate-800 text-white">
                   Guardar
                 </button>
-                <button type="button" onClick={cancelDraft} className="min-h-12 flex-1 rounded-2xl bg-slate-100 text-slate-800">
+                <button type="button" onClick={cancelDraft} className="min-h-14 flex-1 rounded-2xl bg-slate-100 text-slate-800">
                   Cancelar
                 </button>
               </div>
             </form>
           )}
           {!historical && draftExerciseCode !== card.exerciseCode && (
-            <button type="button" className="mt-3 min-h-12 w-full rounded-2xl bg-rose-50" onClick={() => beginNew(card.exerciseCode)}>
+            <button type="button" className="mt-3 min-h-14 w-full rounded-2xl bg-rose-50 text-rose-700" onClick={() => beginNew(card.exerciseCode)}>
               Añadir serie
             </button>
           )}
         </article>
       ))}
       {!historical && (
-        <button ref={pickerTriggerRef} type="button" className="min-h-12 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
+        <button ref={pickerTriggerRef} type="button" className="min-h-14 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
           <Plus className="inline" /> Añadir ejercicio
         </button>
       )}

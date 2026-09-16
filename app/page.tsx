@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { AccountMenu } from '@/components/AccountMenu';
+import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
 import { decideFocusTrapTarget } from '@/lib/gym-workouts.js';
 import {
@@ -179,6 +180,7 @@ const formatDateString = (d: Date) => {
 };
 
 export default function Home() {
+  const confirmDialog = useConfirmDialog();
   const [session, setSession] = useState<Session | null>(null);
   const [authGeneration, setAuthGeneration] = useState<number>(0);
   const [loadingSession, setLoadingSession] = useState<boolean>(true);
@@ -821,7 +823,7 @@ export default function Home() {
     if (!canRateRecipes) return;
     const reviewMutationLock = reviewMutationBusyRef.current;
     if (reviewMutationLock.isBusy()) return;
-    if (!window.confirm(`¿Seguro que quieres eliminar la nota de "${recipeTitle}"?`)) return;
+    if (!(await confirmDialog({ title: 'Eliminar nota', message: `¿Seguro que quieres eliminar la nota de "${recipeTitle}"?`, confirmLabel: 'Eliminar', tone: 'danger' }))) return;
     const userId = session?.user?.id;
     if (!userId) return;
     if (!reviewMutationLock.tryAcquire()) return;

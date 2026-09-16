@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
 import { AdminNavigation } from '@/components/AdminNavigation';
+import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock } from '@/lib/feature-permissions.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
@@ -28,6 +29,7 @@ function mutationError(error: { code?: string } | null, fallback: string) {
 
 export default function GymAdminPage() {
   const router = useRouter();
+  const confirmDialog = useConfirmDialog();
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<GymGroup[]>([]);
@@ -221,7 +223,7 @@ export default function GymAdminPage() {
   }
 
   async function setGroupActive(group: GymGroup, active: boolean) {
-    if (!window.confirm(`¿${active ? 'Activar' : 'Desactivar'} el grupo ${group.name}?`)) return;
+    if (!(await confirmDialog({ title: `${active ? 'Activar' : 'Desactivar'} grupo`, message: `¿${active ? 'Activar' : 'Desactivar'} el grupo ${group.name}?`, confirmLabel: active ? 'Activar' : 'Desactivar', tone: active ? 'default' : 'danger' }))) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
@@ -276,7 +278,7 @@ export default function GymAdminPage() {
   }
 
   async function setExerciseActive(exercise: GymExercise, active: boolean) {
-    if (!window.confirm(`¿${active ? 'Activar' : 'Desactivar'} el ejercicio ${exercise.name}?`)) return;
+    if (!(await confirmDialog({ title: `${active ? 'Activar' : 'Desactivar'} ejercicio`, message: `¿${active ? 'Activar' : 'Desactivar'} el ejercicio ${exercise.name}?`, confirmLabel: active ? 'Activar' : 'Desactivar', tone: active ? 'default' : 'danger' }))) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;

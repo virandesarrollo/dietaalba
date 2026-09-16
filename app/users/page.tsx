@@ -8,6 +8,7 @@ import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, ty
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, groupManageableMembers, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
 import { AdminNavigation } from '@/components/AdminNavigation';
+import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
 type Profile = { id: string; email: string; full_name: string | null; is_sudo: boolean };
@@ -50,6 +51,7 @@ function safeError(error: { code?: string } | null, fallback: string) {
 
 export default function UsersPage() {
   const router = useRouter();
+  const confirmDialog = useConfirmDialog();
   const [currentProfile, setCurrentProfile] = useState<Profile | null>(null);
   const [isSudo, setIsSudo] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -206,7 +208,7 @@ export default function UsersPage() {
 
   async function saveFeatures(member: Member) {
     const features = draftFeatures[member.membership_id] ?? [];
-    if (features.length === 0 && !window.confirm(`¿Retirar todas las funcionalidades de ${member.full_name || member.email} en ${member.group_name}?`)) return;
+    if (features.length === 0 && !(await confirmDialog({ title: 'Retirar funcionalidades', message: `¿Retirar todas las funcionalidades de ${member.full_name || member.email} en ${member.group_name}?`, confirmLabel: 'Retirar', tone: 'danger' }))) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
@@ -254,7 +256,7 @@ export default function UsersPage() {
   }
 
   async function disableMembership(member: Member) {
-    if (!window.confirm(destructiveActionConfirmation('membership', member.full_name, member.email, member.group_name))) return;
+    if (!(await confirmDialog({ title: 'Desactivar membresía', message: destructiveActionConfirmation('membership', member.full_name, member.email, member.group_name), confirmLabel: 'Desactivar', tone: 'danger' }))) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
@@ -279,7 +281,7 @@ export default function UsersPage() {
   async function setAccountActive(member: Member, active: boolean) {
     if (!member.user_id) return;
     if (!active) {
-      if (!window.confirm(destructiveActionConfirmation('account', member.full_name, member.email, member.group_name))) return;
+      if (!(await confirmDialog({ title: 'Desactivar cuenta', message: destructiveActionConfirmation('account', member.full_name, member.email, member.group_name), confirmLabel: 'Desactivar', tone: 'danger' }))) return;
     }
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
@@ -305,7 +307,7 @@ export default function UsersPage() {
   async function setUserSudo(member: Member, sudo: boolean) {
     if (!member.user_id) return;
     const action = sudo ? 'sudo-grant' : 'sudo-revoke';
-    if (!window.confirm(destructiveActionConfirmation(action, member.full_name, member.email, member.group_name))) return;
+    if (!(await confirmDialog({ title: sudo ? 'Conceder acceso sudo' : 'Retirar acceso sudo', message: destructiveActionConfirmation(action, member.full_name, member.email, member.group_name), confirmLabel: sudo ? 'Conceder' : 'Retirar', tone: sudo ? 'default' : 'danger' }))) return;
     const generation = authGenerationRef.current;
     const userId = currentUserIdRef.current;
     if (!userId || !isAuthCurrent(generation, userId)) return;
