@@ -21,7 +21,7 @@ export function deriveCapabilities(
   roles: readonly RoleCode[],
 ): Capabilities;
 
-export type AppView = 'patient' | 'admin' | 'users' | 'settings' | 'training';
+export type AppView = 'patient' | 'admin' | 'users' | 'settings' | 'training' | 'gymAdmin';
 
 export function deriveAvailableViews(
   capabilities: Capabilities,

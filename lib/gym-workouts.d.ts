@@ -37,14 +37,17 @@ export type WorkoutExerciseCard = {
 };
 
 export type ExerciseGroupRelation = {
-  code: string;
+  code?: string;
+  id?: string;
   name: string;
   sort_order: number;
+  is_active: boolean;
 };
 
 export type GroupedExerciseRow = {
   code: string;
   name: string;
+  is_active: boolean;
   gym_exercise_groups: ExerciseGroupRelation | ExerciseGroupRelation[];
 };
 

@@ -9,11 +9,12 @@ import { madridDateString } from '@/lib/historical-date.js';
 import { supabase } from '@/lib/supabase';
 
 type Membership = { id: string; group_id: string };
-type ExerciseGroup = { code: string; name: string; sort_order: number };
+type ExerciseGroup = { code: string; name: string; sort_order: number; is_active: boolean };
 type Exercise = {
   code: string;
   name: string;
   group_id: string;
+  is_active: boolean;
   gym_exercise_groups: ExerciseGroup | ExerciseGroup[];
 };
 type DailyExercise = {
@@ -136,7 +137,7 @@ export default function TrainingPage() {
         router.replace('/');
         return;
       }
-      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, gym_exercise_groups!inner(code, name, sort_order)'), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', session.user.id).eq('workout_date', workoutDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', session.user.id).eq('workout_date', workoutDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
+      const [catalogResult, dailyResult, setsResult, stepResult] = await Promise.all([supabase.from('gym_exercises').select('code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)').eq('is_active', true).eq('gym_exercise_groups.is_active', true), supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot').eq('user_id', session.user.id).eq('workout_date', workoutDate), supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, created_at').eq('user_id', session.user.id).eq('workout_date', workoutDate).order('created_at'), supabase.rpc('get_my_gym_weight_step')]);
       if (!current) return;
       setMembership(activeMembership);
       setUserId(session.user.id);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ClipboardList, Dumbbell, Salad, Settings, Users } from 'lucide-react';
 import {
@@ -19,6 +19,7 @@ const VIEW_DATA = {
   users: { label: 'Usuarios y permisos', path: '/users', icon: Users },
   settings: { label: 'Ajustes', path: '/settings', icon: Settings },
   training: { label: 'Entrenamiento', path: '/training', icon: Dumbbell },
+  gymAdmin: { label: 'Administrar gimnasio', path: '/gym-admin', icon: Dumbbell },
 } as const;
 
 type Props = {
@@ -33,40 +34,66 @@ export function ViewNavigation({ current, vertical = false, showSettings = true 
   const [canAccessSettings, setCanAccessSettings] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
   const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
+  const authGenerationRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    async function loadCapabilities() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (!session) return;
-
-      const [profileResult, membershipResult] = await Promise.all([
-        supabase.from('profiles').select('is_sudo').eq('id', session.user.id).maybeSingle(),
-        supabase.from('group_memberships').select('id').eq('user_id', session.user.id).eq('status', 'active').maybeSingle(),
-      ]);
-      if (!active || profileResult.error || membershipResult.error) return;
-
-      const membership = membershipResult.data as { id: string } | null;
-      const [rolesResult, featuresResult] = await Promise.all([
-        membership
-          ? supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
-          : Promise.resolve({ data: [] as { role_code: RoleCode }[], error: null }),
-        supabase.rpc('get_my_features'),
-      ]);
-      if (!active || rolesResult.error || featuresResult.error) return;
-
-      const roles = (rolesResult.data ?? []).map((row) => (row as { role_code: RoleCode }).role_code);
-      const profile = profileResult.data as { is_sudo?: boolean } | null;
-      const featureCapabilities = deriveFeatureCapabilities(normalizeFeatureRows(featuresResult.data));
-      setResolvedCapabilities(deriveCapabilities(Boolean(profile?.is_sudo), roles));
-      setCanAccessSettings(featureCapabilities.canAccessSettings);
-      setCanTrackGymWorkouts(featureCapabilities.canTrackGymWorkouts);
-      setCanManageGymWorkouts(featureCapabilities.canManageGymWorkouts);
+    let receivedAuthEvent = false;
+    const isAuthCurrent = (generation: number, userId: string) => active
+      && generation === authGenerationRef.current
+      && userId === currentUserIdRef.current;
+    const clearCapabilities = () => {
+      setResolvedCapabilities(null);
+      setCanAccessSettings(false);
+      setCanTrackGymWorkouts(false);
+      setCanManageGymWorkouts(false);
+    };
+    async function loadCapabilities(userId: string, generation: number) {
+      try {
+        const [profileResult, membershipResult] = await Promise.all([
+          supabase.from('profiles').select('is_sudo').eq('id', userId).maybeSingle(),
+          supabase.from('group_memberships').select('id').eq('user_id', userId).eq('status', 'active').maybeSingle(),
+        ]);
+        if (!isAuthCurrent(generation, userId) || profileResult.error || membershipResult.error) return;
+        const membership = membershipResult.data as { id: string } | null;
+        const [rolesResult, featuresResult] = await Promise.all([
+          membership
+            ? supabase.from('user_roles').select('role_code').eq('membership_id', membership.id)
+            : Promise.resolve({ data: [] as { role_code: RoleCode }[], error: null }),
+          supabase.rpc('get_my_features'),
+        ]);
+        if (!isAuthCurrent(generation, userId) || rolesResult.error || featuresResult.error) return;
+        const roles = (rolesResult.data ?? []).map((row) => (row as { role_code: RoleCode }).role_code);
+        const profile = profileResult.data as { is_sudo?: boolean } | null;
+        const featureCapabilities = deriveFeatureCapabilities(normalizeFeatureRows(featuresResult.data));
+        setResolvedCapabilities(deriveCapabilities(Boolean(profile?.is_sudo), roles));
+        setCanAccessSettings(featureCapabilities.canAccessSettings);
+        setCanTrackGymWorkouts(featureCapabilities.canTrackGymWorkouts);
+        setCanManageGymWorkouts(featureCapabilities.canManageGymWorkouts);
+      } catch {
+        if (isAuthCurrent(generation, userId)) clearCapabilities();
+      }
     }
-
-    void loadCapabilities();
-    return () => { active = false; };
+    const applySession = (userId: string | null) => {
+      const generation = ++authGenerationRef.current;
+      currentUserIdRef.current = userId;
+      clearCapabilities();
+      if (userId) void loadCapabilities(userId, generation);
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      receivedAuthEvent = true;
+      applySession(session?.user.id ?? null);
+    });
+    supabase.auth.getSession()
+      .then(({ data }) => { if (active && !receivedAuthEvent) applySession(data.session?.user.id ?? null); })
+      .catch(() => { if (active && !receivedAuthEvent) applySession(null); });
+    return () => {
+      active = false;
+      authGenerationRef.current += 1;
+      currentUserIdRef.current = null;
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (!resolvedCapabilities) return null;
@@ -91,7 +118,7 @@ export function ViewNavigation({ current, vertical = false, showSettings = true 
             onClick={() => router.push(item.path)}
             disabled={selected}
             aria-current={selected ? 'page' : undefined}
-            className={`${vertical ? 'w-full' : ''} flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition ${
+            className={`${vertical ? 'w-full' : ''} min-h-12 flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition ${
               selected
                 ? 'bg-slate-800 text-white'
                 : 'bg-white/70 text-slate-600 hover:bg-white hover:text-rose-500'
