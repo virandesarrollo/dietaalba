@@ -1,4 +1,185 @@
-'use client';
-import {useEffect,useState} from'react';import{ChevronLeft,ChevronRight,Plus}from'lucide-react';import{AppMobileNavigation}from'@/components/AppMobileNavigation';import{supabase}from'@/lib/supabase';
-type R={id:string;recorded_at:string;weight_kg:number|null;body_fat_percentage:number|null;systolic:number|null;diastolic:number|null;pulse:number|null};const day=(d:string,n=0)=>{const x=new Date(`${d}T12:00`);x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};const blank=(d:string)=>({recorded_at:`${d}T12:00`,weight_kg:0,body_fat_percentage:0,systolic:0,diastolic:0,pulse:0});function C({l,v,s=1,set}:{l:string;v:number;s?:number;set:(v:number)=>void}){return <div className="mb-3"><b className="block text-center text-xs">{l}</b><div className="flex gap-2"><button type="button" onClick={()=>set(Math.max(0,v-s))} className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl">−</button><input type="number" step={s} value={v||''} onChange={e=>set(Number(e.target.value))} className="min-h-14 min-w-0 flex-1 rounded-2xl border text-center text-lg font-bold"/><button type="button" onClick={()=>set(v+s)} className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl">+</button></div></div>}
-export default function Health(){const[d,setD]=useState(new Date().toISOString().slice(0,10)),[rows,setRows]=useState<R[]>([]),[f,setF]=useState<ReturnType<typeof blank>|null>(null);useEffect(()=>{void supabase.from('health_records').select('*').gte('recorded_at',`${d}T00:00`).lt('recorded_at',`${day(d,1)}T00:00`).order('recorded_at',{ascending:false}).then(r=>setRows((r.data??[])as R[]))},[d]);async function save(e:React.FormEvent){e.preventDefault();if(!f)return;const p={...f,recorded_at:new Date(f.recorded_at).toISOString(),weight_kg:f.weight_kg||null,body_fat_percentage:f.body_fat_percentage||null,systolic:f.systolic||null,diastolic:f.diastolic||null,pulse:f.pulse||null};await supabase.from('health_records').insert(p);setF(null);setRows([])}return <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-28"><header className="flex items-center justify-between"><button aria-label="Día anterior" onClick={()=>setD(day(d,-1)} className="min-h-12 min-w-12"><ChevronLeft/></button><b>Salud</b><button aria-label="Día siguiente" onClick={()=>setD(day(d,1)} className="min-h-12 min-w-12"><ChevronRight/></button></header><label className="relative my-4 block text-center">{d}<input aria-label="Seleccionar fecha de salud" type="date" value={d} onChange={e=>setD(e.target.value)} className="absolute inset-0 opacity-0"/></label>{rows.map(r=><button key={r.id} className="mb-3 w-full rounded-3xl bg-white p-4 text-left shadow-sm"><b>Medición</b><p>{r.weight_kg} kg · {r.body_fat_percentage}% grasa</p><p>{r.systolic}/{r.diastolic} mmHg · {r.pulse} ppm</p></button>)}{f?<form onSubmit={save} className="rounded-3xl bg-white p-4 shadow-sm"><h2>Composición corporal</h2><C l="Peso (kg)" v={f.weight_kg}s={.1}set={v=>setF({...f,weight_kg:v})}/><C l="% de grasa" v={f.body_fat_percentage}s={.1}set={v=>setF({...f,body_fat_percentage:v})}/><h2>Tensión arterial</h2><C l="Sistólica"v={f.systolic}set={v=>setF({...f,systolic:v})}/><C l="Diastólica"v={f.diastolic}set={v=>setF({...f,diastolic:v})}/><C l="Pulso"v={f.pulse}set={v=>setF({...f,pulse:v})}/><button className="min-h-14 w-full rounded-2xl bg-slate-800 text-white">Guardar</button></form>:<button onClick={()=>setF(blank(d))} className="min-h-14 w-full rounded-2xl bg-slate-800 text-white"><Plus className="inline"/> Añadir medición</button>}<AppMobileNavigation current="health" resolvedViews={['patient','health']}/></main>}
+"use client";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { AppMobileNavigation } from "@/components/AppMobileNavigation";
+import { supabase } from "@/lib/supabase";
+type R = {
+  id: string;
+  recorded_at: string;
+  weight_kg: number | null;
+  body_fat_percentage: number | null;
+  systolic: number | null;
+  diastolic: number | null;
+  pulse: number | null;
+};
+const day = (d: string, n = 0) => {
+  const x = new Date(`${d}T12:00`);
+  x.setDate(x.getDate() + n);
+  return x.toISOString().slice(0, 10);
+};
+const blank = (d: string) => ({
+  recorded_at: `${d}T12:00`,
+  weight_kg: 0,
+  body_fat_percentage: 0,
+  systolic: 0,
+  diastolic: 0,
+  pulse: 0,
+});
+function C({
+  l,
+  v,
+  s = 1,
+  set,
+}: {
+  l: string;
+  v: number;
+  s?: number;
+  set: (v: number) => void;
+}) {
+  return (
+    <div className="mb-3">
+      <b className="block text-center text-xs">{l}</b>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => set(Math.max(0, v - s))}
+          className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          step={s}
+          value={v || ""}
+          onChange={(e) => set(Number(e.target.value))}
+          className="min-h-14 min-w-0 flex-1 rounded-2xl border text-center text-lg font-bold"
+        />
+        <button
+          type="button"
+          onClick={() => set(v + s)}
+          className="min-h-14 min-w-14 rounded-2xl bg-slate-100 text-2xl"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+export default function Health() {
+  const [d, setD] = useState(new Date().toISOString().slice(0, 10)),
+    [rows, setRows] = useState<R[]>([]),
+    [f, setF] = useState<ReturnType<typeof blank> | null>(null);
+  useEffect(() => {
+    void supabase
+      .from("health_records")
+      .select("*")
+      .gte("recorded_at", `${d}T00:00`)
+      .lt("recorded_at", `${day(d, 1)}T00:00`)
+      .order("recorded_at", { ascending: false })
+      .then((r) => setRows((r.data ?? []) as R[]));
+  }, [d]);
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!f) return;
+    const p = {
+      ...f,
+      recorded_at: new Date(f.recorded_at).toISOString(),
+      weight_kg: f.weight_kg || null,
+      body_fat_percentage: f.body_fat_percentage || null,
+      systolic: f.systolic || null,
+      diastolic: f.diastolic || null,
+      pulse: f.pulse || null,
+    };
+    await supabase.from("health_records").insert(p);
+    setF(null);
+    setRows([]);
+  }
+  return (
+    <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-28">
+      <header className="flex items-center justify-between">
+        <button
+          aria-label="Día anterior"
+          onClick={() => setD(day(d, -1))}
+          className="min-h-12 min-w-12"
+        >
+          <ChevronLeft />
+        </button>
+        <b>Salud</b>
+        <button
+          aria-label="Día siguiente"
+          onClick={() => setD(day(d, 1))}
+          className="min-h-12 min-w-12"
+        >
+          <ChevronRight />
+        </button>
+      </header>
+      <label className="relative my-4 block text-center">
+        {d}
+        <input
+          aria-label="Seleccionar fecha de salud"
+          type="date"
+          value={d}
+          onChange={(e) => setD(e.target.value)}
+          className="absolute inset-0 opacity-0"
+        />
+      </label>
+      {rows.map((r) => (
+        <button
+          key={r.id}
+          className="mb-3 w-full rounded-3xl bg-white p-4 text-left shadow-sm"
+        >
+          <b>Medición</b>
+          <p>
+            {r.weight_kg} kg · {r.body_fat_percentage}% grasa
+          </p>
+          <p>
+            {r.systolic}/{r.diastolic} mmHg · {r.pulse} ppm
+          </p>
+        </button>
+      ))}
+      {f ? (
+        <form onSubmit={save} className="rounded-3xl bg-white p-4 shadow-sm">
+          <h2>Composición corporal</h2>
+          <C
+            l="Peso (kg)"
+            v={f.weight_kg}
+            s={0.1}
+            set={(v) => setF({ ...f, weight_kg: v })}
+          />
+          <C
+            l="% de grasa"
+            v={f.body_fat_percentage}
+            s={0.1}
+            set={(v) => setF({ ...f, body_fat_percentage: v })}
+          />
+          <h2>Tensión arterial</h2>
+          <C
+            l="Sistólica"
+            v={f.systolic}
+            set={(v) => setF({ ...f, systolic: v })}
+          />
+          <C
+            l="Diastólica"
+            v={f.diastolic}
+            set={(v) => setF({ ...f, diastolic: v })}
+          />
+          <C l="Pulso" v={f.pulse} set={(v) => setF({ ...f, pulse: v })} />
+          <button className="min-h-14 w-full rounded-2xl bg-slate-800 text-white">
+            Guardar
+          </button>
+        </form>
+      ) : (
+        <button
+          onClick={() => setF(blank(d))}
+          className="min-h-14 w-full rounded-2xl bg-slate-800 text-white"
+        >
+          <Plus className="inline" /> Añadir medición
+        </button>
+      )}
+      <AppMobileNavigation
+        current="health"
+        resolvedViews={["patient", "health"]}
+      />
+    </main>
+  );
+}
