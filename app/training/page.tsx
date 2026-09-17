@@ -210,6 +210,12 @@ export default function TrainingPage() {
     setWorkoutDate((current) => shiftDate(current, amount));
   }
 
+  function selectWorkoutDate(nextDate: string) {
+    if (!nextDate || mutationLockRef.current || saving) return;
+    workoutGenerationRef.current += 1;
+    setWorkoutDate(nextDate);
+  }
+
   async function addExercise(exercise: Pick<Exercise, 'code' | 'name'>) {
     if (!membership || mutationLockRef.current) return;
     mutationLockRef.current = true;
@@ -452,7 +458,10 @@ export default function TrainingPage() {
           <ChevronRight />
         </button>
       </header>
-      <p className="mb-4 text-center text-sm">{formatWorkoutDate(workoutDate)}</p>
+      <label className="relative mb-4 block cursor-pointer text-center text-sm">
+        <span aria-hidden="true">{formatWorkoutDate(workoutDate)}</span>
+        <input type="date" aria-label="Seleccionar fecha de entrenamiento" value={workoutDate} onChange={(event) => selectWorkoutDate(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </label>
       {feedback && (
         <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-3 text-red-700">
           {feedback}

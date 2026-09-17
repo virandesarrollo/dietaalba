@@ -924,9 +924,10 @@ export default function Home() {
               <button onClick={() => changeDate(-1)} className="p-2 hover:bg-pink-50 rounded-xl transition-colors text-pink-400">
                 <ChevronLeft size={20} />
               </button>
-              <span className="font-medium text-xs sm:text-sm capitalize text-slate-700">
-                {parseDateString(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}
-              </span>
+              <label className="relative min-w-0 cursor-pointer font-medium text-xs sm:text-sm capitalize text-slate-700">
+                <span aria-hidden="true">{parseDateString(selectedDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
+                <input type="date" aria-label="Seleccionar fecha de comidas" value={selectedDate} onChange={(event) => selectDate(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+              </label>
               <button onClick={() => changeDate(1)} className="p-2 hover:bg-pink-50 rounded-xl transition-colors text-pink-400">
                 <ChevronRight size={20} />
               </button>
