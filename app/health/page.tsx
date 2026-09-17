@@ -70,7 +70,8 @@ export default function Health() {
   const [d, setD] = useState(new Date().toISOString().slice(0, 10)),
     [rows, setRows] = useState<R[]>([]),
     [f, setF] = useState<ReturnType<typeof blank> | null>(null),
-    [userId, setUserId] = useState("");
+    [userId, setUserId] = useState(""),
+    [error, setError] = useState("");
   useEffect(() => {
     void supabase.auth
       .getSession()
@@ -86,6 +87,19 @@ export default function Health() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!f) return;
+    if (
+      ![
+        f.weight_kg,
+        f.body_fat_percentage,
+        f.systolic,
+        f.diastolic,
+        f.pulse,
+      ].some((value) => value > 0)
+    ) {
+      setError("Indica al menos un valor mayor que cero.");
+      return;
+    }
+    setError("");
     const p = {
       ...f,
       user_id: userId,
@@ -96,7 +110,11 @@ export default function Health() {
       diastolic: f.diastolic || null,
       pulse: f.pulse || null,
     };
-    await supabase.from("health_records").insert(p);
+    const result = await supabase.from("health_records").insert(p);
+    if (result.error) {
+      setError("No se pudo guardar la medición.");
+      return;
+    }
     setF(null);
     setRows([]);
   }
@@ -129,6 +147,14 @@ export default function Health() {
           className="absolute inset-0 opacity-0"
         />
       </label>
+      {error && (
+        <p
+          role="alert"
+          className="mb-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"
+        >
+          {error}
+        </p>
+      )}
       {rows.map((r) => (
         <button
           key={r.id}
