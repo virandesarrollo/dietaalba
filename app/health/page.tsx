@@ -221,9 +221,75 @@ export default function Health() {
               })}
             </b>
           </button>
+          {editingId === r.id && f && (
+            <form
+              onSubmit={save}
+              className="mb-3 rounded-3xl bg-white p-4 shadow-sm"
+            >
+              <h2>Composición corporal</h2>
+              <label className="mb-3 block text-xs font-semibold text-slate-600">
+                Hora
+                <input
+                  type="time"
+                  value={f.recorded_at.slice(11, 16)}
+                  onChange={(event) =>
+                    setF({ ...f, recorded_at: `${d}T${event.target.value}` })
+                  }
+                  className="mt-1 min-h-12 w-full rounded-2xl border px-3 text-base"
+                />
+              </label>
+              <C
+                l="Peso (kg)"
+                v={f.weight_kg}
+                s={0.1}
+                set={(v) => setF({ ...f, weight_kg: v })}
+              />
+              <C
+                l="% de grasa"
+                v={f.body_fat_percentage}
+                s={0.1}
+                set={(v) => setF({ ...f, body_fat_percentage: v })}
+              />
+              <h2>Tensión arterial</h2>
+              <C
+                l="Sistólica"
+                v={f.systolic}
+                set={(v) => setF({ ...f, systolic: v })}
+              />
+              <C
+                l="Diastólica"
+                v={f.diastolic}
+                set={(v) => setF({ ...f, diastolic: v })}
+              />
+              <C l="Pulso" v={f.pulse} set={(v) => setF({ ...f, pulse: v })} />
+              <div className="mt-3 flex gap-2">
+                <button className="min-h-14 flex-1 rounded-2xl bg-slate-800 text-white">
+                  Guardar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setF(null);
+                    setEditingId(null);
+                  }}
+                  className="min-h-14 flex-1 rounded-2xl bg-slate-100 text-slate-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  aria-label="Eliminar medición"
+                  onClick={() => void remove()}
+                  className="min-h-14 min-w-14 rounded-2xl bg-rose-50 text-xl text-rose-600"
+                >
+                  🗑
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       ))}
-      {f ? (
+      {f && editingId === null ? (
         <form onSubmit={save} className="rounded-3xl bg-white p-4 shadow-sm">
           <h2>Composición corporal</h2>
           <label className="mb-3 block text-xs font-semibold text-slate-600">
