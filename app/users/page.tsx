@@ -44,6 +44,7 @@ const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'change_theme', label: 'Cambiar tema' },
   { code: 'track_gym_workouts', label: 'Registrar entrenamientos' },
   { code: 'manage_gym_workouts', label: 'Gestionar entrenamientos' },
+  { code: 'track_health', label: 'Registrar salud' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
