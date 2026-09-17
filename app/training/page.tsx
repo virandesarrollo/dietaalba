@@ -96,7 +96,6 @@ export default function TrainingPage() {
   const authInitializedRef = useRef(false);
   const requestGenerationRef = useRef(0);
   const [authIdentity, setAuthIdentity] = useState<{ generation: number; userId: string } | null>(null);
-  const historical = workoutDate < today;
 
   useEffect(() => {
     if (!showPicker) {
@@ -212,7 +211,7 @@ export default function TrainingPage() {
   }
 
   async function addExercise(exercise: Pick<Exercise, 'code' | 'name'>) {
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
     const authGeneration = authGenerationRef.current;
@@ -264,7 +263,7 @@ export default function TrainingPage() {
 
   async function saveDraft(event: FormEvent, exerciseCode: string, exerciseName: string) {
     event.preventDefault();
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
     const authGeneration = authGenerationRef.current;
@@ -306,7 +305,7 @@ export default function TrainingPage() {
   }
 
   async function moveExercise(exercise: DailyExercise, direction: -1 | 1) {
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     const orderedIds = cards.map((card) => card.id);
     const currentIndex = orderedIds.indexOf(exercise.id);
     const nextIndex = currentIndex + direction;
@@ -334,7 +333,7 @@ export default function TrainingPage() {
   }
 
   async function toggleSetCompleted(set: WorkoutSet) {
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
     const authGeneration = authGenerationRef.current;
@@ -363,7 +362,7 @@ export default function TrainingPage() {
   }
 
   async function deleteSet(set: WorkoutSet) {
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     if (!(await confirmDialog({ title: 'Eliminar serie', message: '¿Eliminar esta serie?', confirmLabel: 'Eliminar', tone: 'danger' }))) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
@@ -397,7 +396,7 @@ export default function TrainingPage() {
   }
 
   async function deleteDailyExercise(exercise: DailyExercise) {
-    if (!membership || historical || mutationLockRef.current) return;
+    if (!membership || mutationLockRef.current) return;
     if (!(await confirmDialog({ title: 'Quitar ejercicio', message: '¿Quitar este ejercicio y todas sus series?', confirmLabel: 'Quitar', tone: 'danger' }))) return;
     mutationLockRef.current = true;
     const mutationToken = ++mutationTokenRef.current;
@@ -445,7 +444,7 @@ export default function TrainingPage() {
   return (
     <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-28">
       <header className="flex items-center justify-between">
-        <button type="button" aria-label="Día anterior" className="min-h-12 min-w-12" disabled={saving || workoutDate <= today} onClick={() => changeWorkoutDate(-1)}>
+        <button type="button" aria-label="Día anterior" className="min-h-12 min-w-12" disabled={saving} onClick={() => changeWorkoutDate(-1)}>
           <ChevronLeft />
         </button>
         <h1 className="font-bold">Entrenamiento</h1>
@@ -459,13 +458,11 @@ export default function TrainingPage() {
           {feedback}
         </p>
       )}
-      {historical && <p>El histórico es de solo lectura.</p>}
       {cards.map((card, cardIndex) => (
         <article key={card.id} className="mb-4 rounded-3xl bg-white p-4 shadow-sm">
           <header className="flex min-h-12 items-center justify-between gap-2 border-b pb-3">
             <h2 className="min-w-0 flex-1 font-bold">{card.name}</h2>
-            {!historical && (
-              <div className="flex shrink-0 gap-1">
+            <div className="flex shrink-0 gap-1">
                 <button type="button" disabled={saving || cardIndex === 0} aria-label={`Subir ${card.name}`} onClick={() => void moveExercise(dailyExercises.find((exercise) => exercise.id === card.id)!, -1)} className="min-h-12 min-w-12 rounded-xl bg-slate-100 text-slate-800 disabled:opacity-30">
                   <ArrowUp aria-hidden="true" className="mx-auto" />
                 </button>
@@ -475,8 +472,7 @@ export default function TrainingPage() {
                 <button type="button" disabled={saving} aria-label={`Quitar ${card.name}`} onClick={() => void deleteDailyExercise(dailyExercises.find((exercise) => exercise.id === card.id)!)} className="min-h-12 min-w-12 rounded-xl bg-rose-50 text-rose-500">
                   <Trash2 aria-hidden="true" className="mx-auto" />
                 </button>
-              </div>
-            )}
+            </div>
           </header>
           {card.sets.map((item) => {
             const rawSet = sets.find((set) => set.id === item.id)!;
@@ -500,13 +496,7 @@ export default function TrainingPage() {
               </form>
             ) : (
               <div key={item.id} className="flex items-center gap-2 border-b py-2">
-                {historical ? (
-                  <div className={`flex min-h-14 flex-1 items-center justify-between px-2 ${item.isCompleted ? 'line-through opacity-50' : ''}`}>
-                    <span aria-label={item.isCompleted ? 'Serie realizada' : 'Serie pendiente'}>{item.isCompleted ? '✓' : '○'}</span>
-                    <b>{item.weightKg} kg</b><span>{item.reps} reps</span>
-                  </div>
-                ) : (
-                  <>
+                <>
                   <button type="button" disabled={saving} aria-pressed={item.isCompleted} aria-label={item.isCompleted ? 'Marcar serie como pendiente' : 'Marcar serie como realizada'} onClick={() => void toggleSetCompleted(rawSet)} className={`min-h-14 min-w-14 rounded-2xl ${item.isCompleted ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
                     <Check aria-hidden="true" className={`mx-auto ${item.isCompleted ? 'opacity-100' : 'opacity-25'}`} />
                   </button>
@@ -514,8 +504,7 @@ export default function TrainingPage() {
                     <b>{item.weightKg} kg</b>
                     <span>{item.reps} reps</span>
                   </button>
-                  </>
-                )}
+                </>
               </div>
             );
           })}
@@ -535,18 +524,16 @@ export default function TrainingPage() {
               </div>
             </form>
           )}
-          {!historical && draftExerciseCode !== card.exerciseCode && (
+          {draftExerciseCode !== card.exerciseCode && (
             <button type="button" className="mt-3 min-h-14 w-full rounded-2xl bg-rose-50 text-rose-700" onClick={() => beginNew(card.exerciseCode)}>
               Añadir serie
             </button>
           )}
         </article>
       ))}
-      {!historical && (
-        <button ref={pickerTriggerRef} type="button" className="min-h-14 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
+      <button ref={pickerTriggerRef} type="button" className="min-h-14 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
           <Plus className="inline" /> Añadir ejercicio
-        </button>
-      )}
+      </button>
       {showPicker && (
         <div className="fixed inset-0 z-50 bg-slate-950/30">
           <section ref={pickerDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="exercise-picker-title" onKeyDown={handlePickerKeyDown} className="absolute inset-x-0 bottom-0 mx-auto max-h-[80vh] max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl">
