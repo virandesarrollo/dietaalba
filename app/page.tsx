@@ -1013,9 +1013,19 @@ export default function Home() {
             </div>
           ) : (
             <div className="space-y-3.5">
-              {Object.entries(groupedMeals).map(([mealType, options]) => (
+              {Object.entries(groupedMeals).map(([mealType, options]) => {
+                const groupCompleted = options.some(option => option.is_completed);
+
+                return (
                 <section key={mealType} aria-label={mealType} className="space-y-2">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-purple-600">{mealType}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wider text-purple-600">{mealType}</h3>
+                    {groupCompleted && (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        Comida realizada
+                      </span>
+                    )}
+                  </div>
                   <div role={options.length > 1 ? 'radiogroup' : undefined} aria-label={mealType} className="space-y-2">
                   {options.map((meal, optionIndex) => {
                 const review = reviews[meal.title];
@@ -1025,7 +1035,7 @@ export default function Home() {
                   <div 
                     key={meal.id} 
                     className={`bg-white p-4 rounded-3xl shadow-sm border transition-all ${
-                      meal.is_completed 
+                      groupCompleted 
                         ? 'opacity-60 bg-slate-50/80 border-slate-100' 
                         : meal.is_free_meal 
                           ? 'border-amber-200/70 bg-gradient-to-b from-white to-amber-50/20' 
@@ -1057,7 +1067,7 @@ export default function Home() {
                           </button>
                         </div>
 
-                        <h3 className={`font-medium text-slate-800 text-sm ${meal.is_completed ? 'line-through text-slate-400' : ''}`}>
+                        <h3 className={`font-medium text-slate-800 text-sm ${groupCompleted ? 'line-through text-slate-400' : ''}`}>
                           {meal.title}
                         </h3>
 
@@ -1174,7 +1184,8 @@ export default function Home() {
                   })}
                   </div>
                 </section>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
