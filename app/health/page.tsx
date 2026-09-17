@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { AppMobileNavigation } from "@/components/AppMobileNavigation";
 import { supabase } from "@/lib/supabase";
+import { formatWorkoutDate } from "@/lib/gym-workouts.js";
 type R = {
   id: string;
   recorded_at: string;
@@ -68,8 +69,12 @@ function C({
 export default function Health() {
   const [d, setD] = useState(new Date().toISOString().slice(0, 10)),
     [rows, setRows] = useState<R[]>([]),
-    [f, setF] = useState<ReturnType<typeof blank> | null>(null);
+    [f, setF] = useState<ReturnType<typeof blank> | null>(null),
+    [userId, setUserId] = useState("");
   useEffect(() => {
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => setUserId(data.session?.user.id ?? ""));
     void supabase
       .from("health_records")
       .select("*")
@@ -83,6 +88,7 @@ export default function Health() {
     if (!f) return;
     const p = {
       ...f,
+      user_id: userId,
       recorded_at: new Date(f.recorded_at).toISOString(),
       weight_kg: f.weight_kg || null,
       body_fat_percentage: f.body_fat_percentage || null,
@@ -114,7 +120,7 @@ export default function Health() {
         </button>
       </header>
       <label className="relative my-4 block text-center">
-        {d}
+        {formatWorkoutDate(d)}
         <input
           aria-label="Seleccionar fecha de salud"
           type="date"
@@ -178,7 +184,7 @@ export default function Health() {
       )}
       <AppMobileNavigation
         current="health"
-        resolvedViews={["patient", "health"]}
+        resolvedViews={["patient", "training", "health"]}
       />
     </main>
   );
