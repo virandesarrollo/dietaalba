@@ -21,7 +21,7 @@ export function deriveCapabilities(
   roles: readonly RoleCode[],
 ): Capabilities;
 
-export type AppView = 'patient' | 'admin' | 'users' | 'settings' | 'training' | 'gymAdmin';
+export type AppView = 'patient' | 'admin' | 'users' | 'settings' | 'training' | 'health' | 'gymAdmin';
 
 export function deriveAvailableViews(
   capabilities: Capabilities,
@@ -29,6 +29,7 @@ export function deriveAvailableViews(
     canAccessSettings?: boolean;
     canTrackGymWorkouts?: boolean;
     canManageGymWorkouts?: boolean;
+    canTrackHealth?: boolean;
   },
 ): AppView[];
 
