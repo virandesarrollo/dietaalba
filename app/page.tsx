@@ -75,16 +75,6 @@ type SourceDay = {
   meals: Meal[];
 };
 
-const MOTIVATIONAL_QUOTES = [
-  "Un día a la vez, lo estás haciendo genial ✨",
-  "Nutre tu cuerpo con amor y constancia 🌸",
-  "Cada pequeña elección suma hacia tu mejor versión 🌿",
-  "La disciplina es regalarte lo que deseas a largo plazo 💕",
-  "Brilla de adentro hacia afuera 💫",
-  "Siente el progreso, no busques la perfección 🩰",
-];
-
-
 const parseDateString = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day);
@@ -119,12 +109,6 @@ export default function Home() {
   const [reviews, setReviews] = useState<Record<string, RecipeReview>>({});
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [quoteIndex] = useState(() => {
-    const now = new Date();
-    const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-    return dayOfYear % MOTIVATIONAL_QUOTES.length;
-  });
-
   // Estado para modal de cargar o intercambiar día
   const [showLoadDayModal, setShowLoadDayModal] = useState<boolean>(false);
   const [selectedSourceDate, setSelectedSourceDate] = useState<string>('');
@@ -910,9 +894,7 @@ export default function Home() {
       <header className="bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 pt-10 pb-6 px-6 rounded-b-[2.5rem] shadow-sm border-b border-pink-100/50">
         <div className="flex items-start justify-between gap-4 mb-3">
           {currentTab === 'plan' ? (
-            <p className="min-w-0 flex-1 text-base font-medium italic leading-snug text-slate-800">
-              &quot;{MOTIVATIONAL_QUOTES[quoteIndex]}&quot;
-            </p>
+            <p className="min-w-0 flex-1 pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Registro de comidas</p>
           ) : (
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
