@@ -1028,21 +1028,89 @@ export default function TrainingPage() {
               : "Ver progreso"}
           </button>
           {progressExercise === card.exerciseCode && (
-            <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-700">
-              {[...new Set(progressRows.map((row) => row.reps))]
-                .sort((a, b) => a - b)
-                .map((reps) => (
-                  <p key={reps} className="mb-1">
-                    <b>{reps} reps:</b>{" "}
-                    {progressRows
-                      .filter((row) => row.reps === reps)
-                      .map(
-                        (row) =>
-                          `${row.workout_date.slice(5)} · ${row.weight_kg} kg`,
-                      )
-                      .join(" → ")}
-                  </p>
-                ))}
+            <div className="fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3">
+              <section
+                role="dialog"
+                aria-modal="true"
+                aria-label="Progreso del ejercicio"
+                className="w-full rounded-3xl bg-white p-5 shadow-2xl"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-bold">Progreso · {card.name}</h2>
+                  <button
+                    type="button"
+                    onClick={() => setProgressExercise(null)}
+                    className="min-h-12 min-w-12 text-xl"
+                  >
+                    ×
+                  </button>
+                </div>
+                <svg
+                  viewBox="0 0 300 180"
+                  className="h-52 w-full rounded-2xl bg-slate-50"
+                  aria-label="Gráfico de peso por repeticiones"
+                >
+                  {[...new Set(progressRows.map((row) => row.reps))]
+                    .sort((a, b) => a - b)
+                    .map((reps, index) => {
+                      const rows = progressRows.filter(
+                        (row) => row.reps === reps,
+                      );
+                      const max = Math.max(
+                        ...progressRows.map((row) => row.weight_kg),
+                        1,
+                      );
+                      const color = [
+                        "#4f46e5",
+                        "#db2777",
+                        "#059669",
+                        "#d97706",
+                      ][index % 4];
+                      return (
+                        <polyline
+                          key={reps}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth="3"
+                          points={rows
+                            .map(
+                              (row, point) =>
+                                `${20 + (point * 260) / Math.max(rows.length - 1, 1)},${160 - (row.weight_kg / max) * 130}`,
+                            )
+                            .join(" ")}
+                        />
+                      );
+                    })}
+                </svg>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {[...new Set(progressRows.map((row) => row.reps))]
+                    .sort((a, b) => a - b)
+                    .map((reps) => (
+                      <span
+                        key={reps}
+                        className="rounded-full bg-slate-100 px-2 py-1"
+                      >
+                        ● {reps} reps
+                      </span>
+                    ))}
+                </div>
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-700">
+                  {[...new Set(progressRows.map((row) => row.reps))]
+                    .sort((a, b) => a - b)
+                    .map((reps) => (
+                      <p key={reps} className="mb-1">
+                        <b>{reps} reps:</b>{" "}
+                        {progressRows
+                          .filter((row) => row.reps === reps)
+                          .map(
+                            (row) =>
+                              `${row.workout_date.slice(5)} · ${row.weight_kg} kg`,
+                          )
+                          .join(" → ")}
+                      </p>
+                    ))}
+                </div>
+              </section>
             </div>
           )}
           {card.sets.map((item) => {
