@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { AppMobileNavigation } from "@/components/AppMobileNavigation";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { supabase } from "@/lib/supabase";
 import { formatWorkoutDate } from "@/lib/gym-workouts.js";
 type R = {
@@ -67,9 +68,11 @@ function C({
   );
 }
 export default function Health() {
+  const confirmDialog = useConfirmDialog();
   const [d, setD] = useState(new Date().toISOString().slice(0, 10)),
     [rows, setRows] = useState<R[]>([]),
     [f, setF] = useState<ReturnType<typeof blank> | null>(null),
+    [editingId, setEditingId] = useState<string | null>(null),
     [userId, setUserId] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
@@ -110,13 +113,57 @@ export default function Health() {
       diastolic: f.diastolic || null,
       pulse: f.pulse || null,
     };
-    const result = await supabase.from("health_records").insert(p);
+    const query = editingId
+      ? supabase.from("health_records").update(p).eq("id", editingId)
+      : supabase.from("health_records").insert(p);
+    const result = await query.select().single();
     if (result.error) {
       setError("No se pudo guardar la medición.");
       return;
     }
     setF(null);
-    setRows([]);
+    setEditingId(null);
+    setRows((current) =>
+      editingId
+        ? current.map((row) =>
+            row.id === editingId ? (result.data as R) : row,
+          )
+        : [result.data as R, ...current],
+    );
+  }
+  function edit(row: R) {
+    setEditingId(row.id);
+    setF({
+      recorded_at: row.recorded_at.slice(0, 16),
+      weight_kg: row.weight_kg ?? 0,
+      body_fat_percentage: row.body_fat_percentage ?? 0,
+      systolic: row.systolic ?? 0,
+      diastolic: row.diastolic ?? 0,
+      pulse: row.pulse ?? 0,
+    });
+  }
+  async function remove() {
+    if (
+      !editingId ||
+      !(await confirmDialog({
+        title: "Eliminar medición",
+        message: "¿Eliminar esta medición de salud?",
+        confirmLabel: "Eliminar",
+        tone: "danger",
+      }))
+    )
+      return;
+    const result = await supabase
+      .from("health_records")
+      .delete()
+      .eq("id", editingId);
+    if (result.error) {
+      setError("No se pudo eliminar la medición.");
+      return;
+    }
+    setRows((current) => current.filter((row) => row.id !== editingId));
+    setF(null);
+    setEditingId(null);
   }
   return (
     <main className="theme-page mx-auto min-h-screen max-w-md p-5 pb-28">
@@ -158,6 +205,8 @@ export default function Health() {
       {rows.map((r) => (
         <button
           key={r.id}
+          type="button"
+          onClick={() => edit(r)}
           className="mb-3 w-full rounded-3xl bg-white p-4 text-left shadow-sm"
         >
           <b>Medición</b>
@@ -199,10 +248,32 @@ export default function Health() {
           <button className="min-h-14 w-full rounded-2xl bg-slate-800 text-white">
             Guardar
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setF(null);
+              setEditingId(null);
+            }}
+            className="mt-2 min-h-12 w-full rounded-2xl bg-slate-100 text-slate-800"
+          >
+            Cancelar
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              onClick={() => void remove()}
+              className="mt-2 min-h-12 w-full text-rose-600"
+            >
+              Eliminar medición
+            </button>
+          )}
         </form>
       ) : (
         <button
-          onClick={() => setF(blank(d))}
+          onClick={() => {
+            setEditingId(null);
+            setF(blank(d));
+          }}
           className="min-h-14 w-full rounded-2xl bg-slate-800 text-white"
         >
           <Plus className="inline" /> Añadir medición
