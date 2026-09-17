@@ -32,7 +32,7 @@ export function deriveAvailableViews(
   },
 ): AppView[];
 
-export type PersonalAppView = Extract<AppView, 'patient' | 'training' | 'settings'>;
+export type PersonalAppView = Extract<AppView, 'patient' | 'training' | 'health' | 'settings'>;
 export type AdminView = Extract<AppView, 'admin' | 'users' | 'gymAdmin'>;
 
 export function deriveAppViews(availableViews: readonly unknown[]): PersonalAppView[];

@@ -1,13 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Dumbbell, Salad } from 'lucide-react';
+import { Dumbbell, HeartPulse, Salad } from 'lucide-react';
 import { deriveAppViews, type PersonalAppView } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
 const APP_DESTINATIONS = {
   patient: { label: 'Comida', path: '/', icon: Salad },
   training: { label: 'Entrenamiento', path: '/training', icon: Dumbbell },
+  health: { label: 'Salud', path: '/health', icon: HeartPulse },
 } as const;
 
 type Props = {
@@ -18,7 +19,7 @@ type Props = {
 function AppMobileNavigationContent({ current, views }: { current: PersonalAppView; views: readonly PersonalAppView[] }) {
   const router = useRouter();
   if (!views.includes('patient')) return null;
-  const mobileViews = views.filter((view): view is 'patient' | 'training' => view === 'patient' || view === 'training');
+  const mobileViews = views.filter((view): view is 'patient' | 'training' | 'health' => view === 'patient' || view === 'training' || view === 'health');
   return (
     <nav aria-label="Navegación de la app" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/50 bg-white/80 px-3 pt-2 shadow-lg backdrop-blur-xl" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
       <div className="mx-auto flex max-w-lg items-stretch justify-around gap-1">
