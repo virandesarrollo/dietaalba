@@ -247,12 +247,32 @@ export default function TrainingPage() {
     }
   }
 
-  function beginNew(exerciseCode: string) {
+  async function beginNew(exerciseCode: string) {
     const previous = [...sets].reverse().find((set) => set.exercise_code === exerciseCode);
+    const beginUserId = currentUserIdRef.current;
+    const beginGeneration = workoutGenerationRef.current;
+    const beginDate = workoutDate;
+
+    let proposal: Pick<WorkoutSet, 'weight_kg' | 'reps'> | undefined = previous;
+    if (!proposal && beginUserId) {
+      const result = await supabase
+        .from('gym_workout_sets')
+        .select('weight_kg, reps')
+        .eq('user_id', userId)
+        .eq('exercise_code', exerciseCode)
+        .lt('workout_date', workoutDate)
+        .order('workout_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (beginUserId !== currentUserIdRef.current || beginGeneration !== workoutGenerationRef.current || beginDate !== workoutDate) return;
+      proposal = result.data ?? undefined;
+    }
+
     setDraftExerciseCode(exerciseCode);
     setEditingSetId(null);
-    setDraftWeight(previous?.weight_kg ?? gymWeightStep);
-    setDraftReps(previous?.reps ?? 1);
+    setDraftWeight(proposal?.weight_kg ?? gymWeightStep);
+    setDraftReps(proposal?.reps ?? 1);
   }
 
   function beginEdit(set: WorkoutSet) {
@@ -534,7 +554,7 @@ export default function TrainingPage() {
             </form>
           )}
           {draftExerciseCode !== card.exerciseCode && (
-            <button type="button" className="mt-3 min-h-14 w-full rounded-2xl bg-rose-50 text-rose-700" onClick={() => beginNew(card.exerciseCode)}>
+            <button type="button" className="mt-3 min-h-14 w-full rounded-2xl bg-rose-50 text-rose-700" onClick={() => void beginNew(card.exerciseCode)}>
               Añadir serie
             </button>
           )}
