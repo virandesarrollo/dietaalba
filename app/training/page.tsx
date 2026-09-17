@@ -37,6 +37,7 @@ type WorkoutSet = {
   created_at: string;
 };
 type RoleRow = { role_code: string };
+type CopySource = { date: string; exercises: DailyExercise[]; sets: WorkoutSet[] };
 
 function shiftDate(date: string, amount: number) {
   const value = new Date(`${date}T12:00:00`);
@@ -77,6 +78,10 @@ export default function TrainingPage() {
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState(1);
   const [showPicker, setShowPicker] = useState(false);
+  const [copySources, setCopySources] = useState<string[]>([]);
+  const [selectedCopySource, setSelectedCopySource] = useState<CopySource | null>(null);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [loadingCopy, setLoadingCopy] = useState(false);
   const [draftExerciseCode, setDraftExerciseCode] = useState<string | null>(null);
   const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [draftWeight, setDraftWeight] = useState(1);
@@ -285,6 +290,39 @@ export default function TrainingPage() {
   function cancelDraft() {
     setDraftExerciseCode(null);
     setEditingSetId(null);
+  }
+
+  async function openCopySources() {
+    setShowCopyDialog(true); setSelectedCopySource(null); setLoadingCopy(true); setFeedback('');
+    const result = await supabase.from('gym_workout_exercises').select('workout_date').eq('user_id', userId).gte('workout_date', shiftDate(workoutDate, -20)).lt('workout_date', workoutDate).order('workout_date', { ascending: false });
+    setCopySources([...new Set((result.data ?? []).map((row) => row.workout_date as string))]);
+    setLoadingCopy(false);
+  }
+
+  async function selectCopySource(date: string) {
+    setLoadingCopy(true);
+    const [exercisesResult, setsResult] = await Promise.all([
+      supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot, position, created_at').eq('user_id', userId).eq('workout_date', date).order('position'),
+      supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, is_completed, created_at').eq('user_id', userId).eq('workout_date', date).order('created_at'),
+    ]);
+    setSelectedCopySource({ date, exercises: (exercisesResult.data ?? []) as DailyExercise[], sets: (setsResult.data ?? []) as WorkoutSet[] }); setLoadingCopy(false);
+  }
+
+  async function copySelectedWorkout() {
+    if (!selectedCopySource || !membership || mutationLockRef.current) return;
+    const accepted = await confirmDialog({ title: 'Copiar entrenamiento', message: 'Se copiarán los ejercicios y series como pendientes.', confirmLabel: 'Copiar' });
+    if (!accepted) return;
+    mutationLockRef.current = true; setSaving(true);
+    try {
+      const result = await supabase.rpc('copy_my_gym_workout', { p_source_date: selectedCopySource.date, p_target_date: workoutDate });
+      if (result.error) { setFeedback('No se pudo copiar el entrenamiento.'); return; }
+      setShowCopyDialog(false); setSelectedCopySource(null); setWorkoutDate((date) => date);
+      const [dailyResult, setsResult] = await Promise.all([
+        supabase.from('gym_workout_exercises').select('id, exercise_code, exercise_name_snapshot, position, created_at').eq('user_id', userId).eq('workout_date', workoutDate),
+        supabase.from('gym_workout_sets').select('id, exercise_code, weight_kg, reps, is_completed, created_at').eq('user_id', userId).eq('workout_date', workoutDate).order('created_at'),
+      ]);
+      setDailyExercises((dailyResult.data ?? []) as DailyExercise[]); setSets((setsResult.data ?? []) as WorkoutSet[]);
+    } finally { mutationLockRef.current = false; setSaving(false); }
   }
 
   async function saveDraft(event: FormEvent, exerciseCode: string, exerciseName: string) {
@@ -560,6 +598,11 @@ export default function TrainingPage() {
           )}
         </article>
       ))}
+      {dailyExercises.length === 0 && (
+        <button type="button" disabled={saving} className="mb-3 min-h-14 w-full rounded-2xl bg-indigo-50 font-semibold text-indigo-700" onClick={() => void openCopySources()}>
+          Copiar entrenamiento anterior
+        </button>
+      )}
       <button ref={pickerTriggerRef} type="button" className="min-h-14 w-full rounded-2xl bg-slate-800 text-white" onClick={() => setShowPicker(true)}>
           <Plus className="inline" /> Añadir ejercicio
       </button>
@@ -584,6 +627,23 @@ export default function TrainingPage() {
                 ))}
               </details>
             ))}
+          </section>
+        </div>
+      )}
+      {showCopyDialog && (
+        <div className="fixed inset-0 z-50 bg-slate-950/30">
+          <section role="dialog" aria-modal="true" aria-label="Copiar entrenamiento anterior" className="absolute inset-x-0 bottom-0 mx-auto max-h-[80vh] max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-bold">{selectedCopySource ? formatWorkoutDate(selectedCopySource.date) : 'Entrenamientos anteriores'}</h2>
+              <button type="button" aria-label="Cerrar copia de entrenamiento" onClick={() => { setShowCopyDialog(false); setSelectedCopySource(null); }} className="min-h-12 min-w-12"><X /></button>
+            </div>
+            {loadingCopy ? <p>Cargando…</p> : selectedCopySource ? (
+              <div className="space-y-3">
+                {selectedCopySource.exercises.map((exercise) => <article key={exercise.id} className="rounded-2xl bg-slate-50 p-3"><b>{exercise.exercise_name_snapshot}</b>{selectedCopySource.sets.filter((set) => set.exercise_code === exercise.exercise_code).map((set) => <p key={set.id} className="text-sm text-slate-600">{set.weight_kg} kg × {set.reps} reps</p>)}</article>)}
+                <button type="button" className="min-h-14 w-full rounded-2xl bg-slate-800 text-white" onClick={() => void copySelectedWorkout()}>Copiar este entrenamiento</button>
+                <button type="button" className="min-h-12 w-full text-slate-700" onClick={() => setSelectedCopySource(null)}>Volver a días</button>
+              </div>
+            ) : copySources.length ? <div className="space-y-2">{copySources.map((date) => <button key={date} type="button" className="min-h-14 w-full rounded-2xl bg-slate-100 px-4 text-left font-semibold text-slate-800" onClick={() => void selectCopySource(date)}>{formatWorkoutDate(date)}</button>)}</div> : <p className="text-slate-500">No hay entrenamientos en los últimos 20 días.</p>}
           </section>
         </div>
       )}
