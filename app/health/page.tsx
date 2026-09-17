@@ -27,6 +27,11 @@ const blank = (d: string) => ({
   diastolic: 0,
   pulse: 0,
 });
+const localDateTimeInput = (value: string) => {
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
 function C({
   l,
   v,
@@ -134,7 +139,7 @@ export default function Health() {
   function edit(row: R) {
     setEditingId(row.id);
     setF({
-      recorded_at: row.recorded_at.slice(0, 16),
+      recorded_at: localDateTimeInput(row.recorded_at),
       weight_kg: row.weight_kg ?? 0,
       body_fat_percentage: row.body_fat_percentage ?? 0,
       systolic: row.systolic ?? 0,
@@ -203,19 +208,20 @@ export default function Health() {
         </p>
       )}
       {rows.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => edit(r)}
-          className="mb-3 w-full rounded-3xl bg-white p-4 text-left shadow-sm"
-        >
-          <b>
-            {new Date(r.recorded_at).toLocaleTimeString("es-ES", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </b>
-        </button>
+        <div key={r.id}>
+          <button
+            type="button"
+            onClick={() => edit(r)}
+            className="mb-3 w-full rounded-3xl bg-white p-4 text-left shadow-sm"
+          >
+            <b>
+              {new Date(r.recorded_at).toLocaleTimeString("es-ES", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </b>
+          </button>
+        </div>
       ))}
       {f ? (
         <form onSubmit={save} className="rounded-3xl bg-white p-4 shadow-sm">
