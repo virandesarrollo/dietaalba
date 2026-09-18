@@ -219,6 +219,7 @@ export default function Health() {
       )}
       {rows.map((r, index) => (
         <div key={r.id}>
+          {rows.length > 1 && (
           <button
             type="button"
             onClick={() => edit(r)}
@@ -234,6 +235,7 @@ export default function Health() {
               })}
             </b>
           </button>
+          )}
           {editingId === r.id && f && (
             <form
               onSubmit={save}
