@@ -1029,7 +1029,10 @@ export default function Home() {
                   <div role={options.length > 1 ? 'radiogroup' : undefined} aria-label={mealType} className="space-y-2">
                   {options.map((meal, optionIndex) => {
                 const review = reviews[meal.title];
-                const isSelectedRecipe = recipes.some(r => r.title === meal.title);
+                const matchingRecipes = recipes.filter(recipe =>
+                  recipe.meal_type.trim().localeCompare(meal.meal_type.trim(), 'es', { sensitivity: 'accent' }) === 0,
+                );
+                const isSelectedRecipe = matchingRecipes.some(recipe => recipe.title === meal.title);
 
                 return (
                   <div 
@@ -1095,14 +1098,10 @@ export default function Home() {
                                 <option value="__custom__">
                                   ✨ Libre (sin receta fija / personalizada)
                                 </option>
-                                {Object.entries(groupedRecipes).map(([group, groupList]) => (
-                                  <optgroup key={group} label={group} className="font-semibold text-slate-800 bg-white">
-                                    {groupList.map(rec => (
-                                      <option key={rec.id || rec.title} value={rec.title} className="font-normal text-slate-700 py-1">
-                                        {rec.title}
-                                      </option>
-                                    ))}
-                                  </optgroup>
+                                {matchingRecipes.map(rec => (
+                                  <option key={rec.id || rec.title} value={rec.title} className="font-normal text-slate-700 py-1">
+                                    {rec.title}
+                                  </option>
                                 ))}
                               </select>
                               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none" />
