@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { AppMobileNavigation } from "@/components/AppMobileNavigation";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
@@ -20,15 +20,15 @@ export default function Health() {
   const [editingId, setEditingId] = useState<string | null>(null); const [error, setError] = useState("");
   const [features, setFeatures] = useState(() => deriveFeatureCapabilities([]));
   const { canTrackHealth, canTrackWeight, canTrackBloodPressure } = features;
-  const loadRows = async () => {
+  const loadRows = useCallback(async () => {
     if (!canTrackHealth) { setRows([]); return; }
     const r = await supabase.rpc("get_my_health_records", { p_start: `${d}T00:00`, p_end: `${day(d, 1)}T00:00` });
     if (r.error) { setError("No se pudieron cargar las mediciones."); return; }
     const loadedRows = (r.data ?? []) as R[]; setRows(loadedRows);
     if (loadedRows.length === 1) edit(loadedRows[0]);
-  };
+  }, [d, canTrackHealth]);
   useEffect(() => { void supabase.rpc("get_my_features").then((r) => setFeatures(deriveFeatureCapabilities(normalizeFeatureRows(r.data)))); }, []);
-  useEffect(() => { void loadRows(); }, [d, canTrackHealth]);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadRows(); }, 0); return () => window.clearTimeout(timer); }, [loadRows]);
   function edit(row: R) { setEditingId(row.id); setF({ recorded_at: localDateTimeInput(row.recorded_at), weight_kg: row.weight_kg ?? 0, body_fat_percentage: row.body_fat_percentage ?? 0, systolic: row.systolic ?? 0, diastolic: row.diastolic ?? 0, pulse: row.pulse ?? 0 }); }
   async function save(e: React.FormEvent) {
     e.preventDefault(); if (!f) return;
