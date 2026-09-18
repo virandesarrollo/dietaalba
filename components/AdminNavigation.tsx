@@ -6,8 +6,8 @@ import { deriveAdminViews, type AdminView } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
 const ADMIN_DESTINATIONS = {
-  admin: { label: 'Administrar dietas', path: '/admin', icon: ClipboardList },
   users: { label: 'Usuarios y permisos', path: '/users', icon: Users },
+  admin: { label: 'Administrar dietas', path: '/admin', icon: ClipboardList },
   gymAdmin: { label: 'Administrar gimnasio', path: '/gym-admin', icon: Dumbbell },
 } as const;
 
