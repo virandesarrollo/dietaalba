@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
-import { AdminNavigation } from '@/components/AdminNavigation';
+import { AdminSidebar } from '@/components/AdminSidebar';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock } from '@/lib/feature-permissions.js';
@@ -306,11 +306,11 @@ export default function GymAdminPage() {
   if (loading || !authorized) return <main className="theme-page flex min-h-screen items-center justify-center text-sm theme-muted">Cargando catálogo…</main>;
 
   return (
-    <main className="theme-page min-h-screen px-4 py-7 font-sans sm:px-8">
-      <div className="mx-auto max-w-6xl">
+    <main className="theme-page min-h-screen font-sans">
+      <AdminSidebar current="gymAdmin" views={adminViews} />
+      <div className="mx-auto max-w-6xl px-4 py-7 sm:px-8 lg:ml-80">
       <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
         <div><div className="flex items-center gap-2 text-pink-500"><Dumbbell size={19} /><p className="text-xs font-semibold uppercase tracking-widest">Catálogo global</p></div><h1 className="mt-2 text-3xl font-bold text-slate-800">Administrar gimnasio</h1></div>
-        <AdminNavigation current="gymAdmin" resolvedViews={adminViews} />
       </header>
 
       <div className="space-y-5">

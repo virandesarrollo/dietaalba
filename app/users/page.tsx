@@ -7,7 +7,7 @@ import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminV
 import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, type FeatureCode } from '@/lib/feature-permissions.js';
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, groupManageableMembers, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
-import { AdminNavigation } from '@/components/AdminNavigation';
+import { AdminSidebar } from '@/components/AdminSidebar';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
@@ -335,11 +335,11 @@ export default function UsersPage() {
   if (loading) return <main className="theme-page flex min-h-screen items-center justify-center text-sm text-slate-500">Cargando gestión de usuarios…</main>;
 
   return (
-    <main className="theme-page min-h-screen px-4 py-7 text-slate-700 sm:px-8">
-      <div className="mx-auto max-w-6xl">
+    <main className="theme-page min-h-screen text-slate-700">
+      <AdminSidebar current="users" views={adminViews} name={currentProfile?.full_name || 'Usuario'} email={currentProfile?.email || ''} />
+      <div className="mx-auto max-w-6xl px-4 py-7 sm:px-8 lg:ml-80">
         <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-sm font-semibold text-rose-400">Administración</p><h1 className="text-3xl font-bold text-slate-800">Usuarios y permisos</h1></div>
-          <AdminNavigation current="users" resolvedViews={adminViews} />
         </header>
 
         {message && <p role="status" className={`mb-5 rounded-2xl border p-4 text-sm ${message.kind === 'error' ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'}`}>{message.text}</p>}
