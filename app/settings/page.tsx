@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Moon, Palette, Sparkles, Sun } from 'lucide-react';
+import { ArrowLeft, Check, LogOut, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
@@ -139,6 +139,10 @@ export default function SettingsPage() {
     } catch { /* ThemeProvider exposes the actionable error. */ }
   }
 
+  async function logout() {
+    await supabase.auth.signOut();
+  }
+
   if (loading || !canAccessSettings) {
     return <main className="theme-page flex min-h-screen items-center justify-center text-sm theme-muted">Cargando ajustes…</main>;
   }
@@ -163,6 +167,8 @@ export default function SettingsPage() {
       </header>
 
       <div className="px-5 pt-7">
+
+        <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
 
         {canTrackGymWorkouts && (
           <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">

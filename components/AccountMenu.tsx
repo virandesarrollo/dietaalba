@@ -4,15 +4,18 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 
 type AccountMenuProps = {
-  email: string;
-  canAccessSettings: boolean;
+  email?: string;
+  canAccessSettings?: boolean;
 };
 
-export function AccountMenu({ email, canAccessSettings }: AccountMenuProps) {
+export function AccountMenu({ email = '', canAccessSettings }: AccountMenuProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [fetchedCanAccessSettings, setFetchedCanAccessSettings] = useState(false);
+  const resolvedCanAccessSettings = canAccessSettings ?? fetchedCanAccessSettings;
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,6 +36,11 @@ export function AccountMenu({ email, canAccessSettings }: AccountMenuProps) {
       document.removeEventListener('keydown', closeWithEscape);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (canAccessSettings !== undefined) return;
+    void supabase.rpc('get_my_features').then((result) => setFetchedCanAccessSettings(deriveFeatureCapabilities(normalizeFeatureRows(result.data)).canAccessSettings));
+  }, [canAccessSettings]);
 
   function openSettings() {
     setOpen(false);
@@ -59,7 +67,7 @@ export function AccountMenu({ email, canAccessSettings }: AccountMenuProps) {
 
       {open && (
         <div role="menu" className="theme-surface absolute right-0 top-12 z-50 min-w-48 overflow-hidden rounded-2xl border theme-border p-1.5 shadow-xl">
-          {canAccessSettings && (
+          {resolvedCanAccessSettings && (
             <button
               type="button"
               role="menuitem"

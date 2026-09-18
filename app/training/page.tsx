@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { AppMobileNavigation } from "@/components/AppMobileNavigation";
+import { AccountMenu } from "@/components/AccountMenu";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import {
   deriveAppViews,
@@ -942,15 +943,7 @@ export default function TrainingPage() {
           <ChevronLeft />
         </button>
         <h1 className="font-bold">Entrenamiento</h1>
-        <button
-          type="button"
-          aria-label="Día siguiente"
-          className="min-h-12 min-w-12"
-          disabled={saving}
-          onClick={() => changeWorkoutDate(1)}
-        >
-          <ChevronRight />
-        </button>
+        <div className="flex items-center gap-2"><button type="button" aria-label="Día siguiente" className="min-h-12 min-w-12" disabled={saving} onClick={() => changeWorkoutDate(1)}><ChevronRight /></button><AccountMenu /></div>
       </header>
       <label className="relative mb-4 block cursor-pointer text-center text-sm">
         <span aria-hidden="true">{formatWorkoutDate(workoutDate)}</span>
