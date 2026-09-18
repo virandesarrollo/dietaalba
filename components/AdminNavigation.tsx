@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ClipboardList, Dumbbell, Users } from 'lucide-react';
+import { ArrowLeft, ChartNoAxesCombined, ClipboardList, Dumbbell, Users } from 'lucide-react';
 import { deriveAdminViews, type AdminView } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
@@ -9,6 +9,7 @@ const ADMIN_DESTINATIONS = {
   users: { label: 'Usuarios y permisos', path: '/users', icon: Users },
   admin: { label: 'Administrar dietas', path: '/admin', icon: ClipboardList },
   gymAdmin: { label: 'Administrar gimnasio', path: '/gym-admin', icon: Dumbbell },
+  patientControl: { label: 'Controlar pacientes', path: '/patient-control', icon: ChartNoAxesCombined },
 } as const;
 
 type AdminNavigationProps = {
