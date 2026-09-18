@@ -96,7 +96,11 @@ export default function Health() {
       .gte("recorded_at", `${d}T00:00`)
       .lt("recorded_at", `${day(d, 1)}T00:00`)
       .order("recorded_at", { ascending: true })
-      .then((r) => setRows((r.data ?? []) as R[]));
+      .then((r) => {
+        const loadedRows = (r.data ?? []) as R[];
+        setRows(loadedRows);
+        if (loadedRows.length === 1) edit(loadedRows[0]);
+      });
   }, [d]);
   async function save(e: React.FormEvent) {
     e.preventDefault();
