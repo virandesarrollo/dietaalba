@@ -102,6 +102,7 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [waterMl, setWaterMl] = useState(0);
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
@@ -300,6 +301,9 @@ export default function Home() {
       commit(() => setMeals([]));
     }
 
+    const waterResult = await supabase.rpc('get_daily_water', { p_date: targetDate });
+    if (requestGuard.isCurrent(request)) commit(() => setWaterMl(typeof waterResult.data === 'number' ? waterResult.data : 0));
+
     // 2. Cargar notas/ratings solo si alguna función autorizada los necesita
     if (nextCapabilities.canOpenNotes) {
       const { data: reviewsData, error: reviewsError } = await supabase
@@ -341,6 +345,13 @@ export default function Home() {
     commit(() => setLoading(false));
     return !mealsError;
   }, [selectedDate, session]);
+
+  async function saveDailyWater(nextMl: number) {
+    if (isHistoricalDay) return;
+    setWaterMl(nextMl);
+    const { error } = await supabase.rpc('save_daily_water', { p_date: selectedDate, p_ml: nextMl });
+    if (error) setPlanError('No se pudo guardar el agua.');
+  }
 
   useEffect(() => {
     if (session) {
@@ -950,6 +961,11 @@ export default function Home() {
       {currentTab === 'plan' && (
         <section className="px-5 mt-6">
           {planError && <p className="mb-3 text-sm text-rose-700" role="alert">{planError}</p>}
+          <section className="mb-4 rounded-3xl bg-cyan-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Registro de agua</h2><p className="text-xs text-slate-500">{(waterMl / 1000).toFixed(2)} L de 2,00 L</p></div><span className="text-2xl">💧</span></div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100"><div className="h-full bg-cyan-500" style={{ width: `${Math.min(100, waterMl / 20)}%` }} /></div>
+            <div className="mt-3 flex gap-2"><button type="button" disabled={isHistoricalDay || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - 250))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isHistoricalDay} onClick={() => void saveDailyWater(waterMl + 250)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
+          </section>
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
