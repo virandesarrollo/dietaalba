@@ -27,6 +27,11 @@ const blank = (d: string) => ({
   diastolic: 0,
   pulse: 0,
 });
+const blankNow = (d: string) => {
+  const now = new Date();
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return { ...blank(d), recorded_at: `${d}T${pad(now.getHours())}:${pad(now.getMinutes())}` };
+};
 const localDateTimeInput = (value: string) => {
   const date = new Date(value);
   const pad = (part: number) => String(part).padStart(2, "0");
@@ -357,7 +362,7 @@ export default function Health() {
         <button
           onClick={() => {
             setEditingId(null);
-            setF(blank(d));
+            setF(blankNow(d));
           }}
           className="min-h-14 w-full rounded-2xl bg-slate-800 text-white"
         >
