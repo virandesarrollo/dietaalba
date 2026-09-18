@@ -45,6 +45,8 @@ const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'track_gym_workouts', label: 'Registrar entrenamientos' },
   { code: 'manage_gym_workouts', label: 'Gestionar entrenamientos' },
   { code: 'track_health', label: 'Registrar salud' },
+  { code: 'track_weight', label: 'Registrar peso' },
+  { code: 'track_blood_pressure', label: 'Registrar tensión' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;

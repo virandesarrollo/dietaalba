@@ -5,7 +5,9 @@ export type FeatureCode =
   | 'change_theme'
   | 'track_gym_workouts'
   | 'manage_gym_workouts'
-  | 'track_health';
+  | 'track_health'
+  | 'track_weight'
+  | 'track_blood_pressure';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
@@ -16,6 +18,8 @@ export type FeatureCapabilities = {
   canTrackGymWorkouts: boolean;
   canManageGymWorkouts: boolean;
   canTrackHealth: boolean;
+  canTrackWeight: boolean;
+  canTrackBloodPressure: boolean;
 };
 
 export function deriveFeatureCapabilities(
