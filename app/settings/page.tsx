@@ -38,6 +38,9 @@ export default function SettingsPage() {
   const [waterGoalMl, setWaterGoalMl] = useState('2000');
   const [waterGlassMl, setWaterGlassMl] = useState('250');
   const [waterMessage, setWaterMessage] = useState<string | null>(null);
+  const [morningPushEnabled, setMorningPushEnabled] = useState(false);
+  const [morningPushTime, setMorningPushTime] = useState('06:20');
+  const [morningPushMessage, setMorningPushMessage] = useState<string | null>(null);
   const authGenerationRef = useRef(0);
   const currentUserIdRef = useRef<string | null>(null);
   const authInitializedRef = useRef(false);
@@ -122,6 +125,24 @@ export default function SettingsPage() {
     if (!Number.isInteger(goal) || !Number.isInteger(glass) || goal < 250 || glass < 50) { setWaterMessage('Indica valores válidos.'); return; }
     const { error: waterError } = await supabase.rpc('set_my_water_preferences', { p_goal_ml: goal, p_glass_ml: glass });
     setWaterMessage(waterError ? 'No se pudo guardar el agua.' : 'Preferencias de agua guardadas.');
+  }
+
+  async function saveMorningPush() {
+    if (morningPushEnabled && (!('Notification' in window) || !('serviceWorker' in navigator))) { setMorningPushMessage('Este navegador no admite notificaciones push.'); return; }
+    if (morningPushEnabled) {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { setMorningPushMessage('Debes permitir las notificaciones.'); return; }
+      const registration = await navigator.serviceWorker.register('/push-sw.js');
+      const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapid) { setMorningPushMessage('Falta configurar las notificaciones.'); return; }
+      const bytes = Uint8Array.from(atob(vapid.replace(/-/g, '+').replace(/_/g, '/')), (char) => char.charCodeAt(0));
+      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      const json = subscription.toJSON();
+      const { error: subscriptionError } = await supabase.from('web_push_subscriptions').upsert({ user_id: currentUserIdRef.current, endpoint: subscription.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth }, { onConflict: 'endpoint' });
+      if (subscriptionError) { setMorningPushMessage('No se pudo registrar el dispositivo.'); return; }
+    }
+    const { error } = await supabase.from('morning_push_preferences').upsert({ user_id: currentUserIdRef.current, enabled: morningPushEnabled, send_time: morningPushTime });
+    setMorningPushMessage(error ? 'No se pudo guardar el aviso.' : 'Aviso de buenos días guardado.');
   }
 
   async function changeTheme(nextTheme: 'alba' | 'dark') {
@@ -291,6 +312,12 @@ export default function SettingsPage() {
           </section>
           </div>
         )}
+        <section className="theme-surface mt-5 rounded-3xl border p-5">
+          <h2 className="font-bold">Buenos días</h2><p className="theme-muted mt-1 text-xs">Recibe un mensaje motivador diario.</p>
+          <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={morningPushEnabled} onChange={(event) => setMorningPushEnabled(event.target.checked)} /> Activar notificación</label>
+          <label className="mt-3 block text-sm">Hora<input type="time" value={morningPushTime} onChange={(event) => setMorningPushTime(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3" /></label>
+          <button type="button" onClick={() => void saveMorningPush()} className="mt-4 rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Guardar aviso</button>{morningPushMessage && <p role="status" className="mt-3 text-sm">{morningPushMessage}</p>}
+        </section>
       </div>
       <AppMobileNavigation current="settings" resolvedViews={appNavigationViews} />
     </main>
