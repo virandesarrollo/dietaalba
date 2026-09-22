@@ -1,0 +1,2 @@
+self.addEventListener('push', (event) => { const data = event.data?.json() ?? {}; event.waitUntil(self.registration.showNotification(data.title ?? 'Buenos días', { body: data.body ?? 'Hoy es un buen día para cuidarte.', icon: '/icon-192.png', data: { url: '/' } })); });
+self.addEventListener('notificationclick', (event) => { event.notification.close(); event.waitUntil(clients.openWindow(event.notification.data?.url ?? '/')); });
