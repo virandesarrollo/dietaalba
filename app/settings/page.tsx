@@ -86,6 +86,8 @@ export default function SettingsPage() {
       }
       const { data: water } = await supabase.rpc('get_my_water_preferences');
       if (isCurrent() && Array.isArray(water) && water[0]) { setWaterGoalMl(String(water[0].goal_ml)); setWaterGlassMl(String(water[0].glass_ml)); }
+      const { data: morningPush } = await supabase.from('morning_push_preferences').select('enabled, send_time').eq('user_id', userId).maybeSingle();
+      if (isCurrent() && morningPush) { setMorningPushEnabled(morningPush.enabled); setMorningPushTime(morningPush.send_time.slice(0, 5)); }
       } catch { if (isCurrent()) router.replace('/'); }
       finally { if (isCurrent()) setLoading(false); }
     }
