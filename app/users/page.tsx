@@ -337,10 +337,11 @@ export default function UsersPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setMessage({ kind: 'error', text: 'No se pudo verificar tu sesión.' }); return; }
     const response = await fetch('/api/patient-preview', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ patientId: member.user_id }) });
-    const payload = await response.json() as { link?: string };
-    if (!response.ok || !payload.link) { setMessage({ kind: 'error', text: 'No se pudo iniciar el acceso como paciente.' }); return; }
+    const payload = await response.json().catch(() => null) as { link?: string } | null;
+    const link = payload?.link;
+    if (!response.ok || !link) { setMessage({ kind: 'error', text: 'No se pudo iniciar el acceso como paciente.' }); return; }
     sessionStorage.setItem('patient-preview-admin-session', JSON.stringify(session));
-    window.location.assign(payload.link);
+    window.location.assign(link);
   }
 
   if (loading) return <main className="theme-page flex min-h-screen items-center justify-center text-sm text-slate-500">Cargando gestión de usuarios…</main>;
