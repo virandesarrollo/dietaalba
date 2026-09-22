@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { LogOut, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
+import { PatientPreviewReturn } from '@/components/PatientPreviewReturn';
 
 type AccountMenuProps = {
   email?: string;
@@ -67,6 +68,7 @@ export function AccountMenu({ email = '', canAccessSettings }: AccountMenuProps)
 
       {open && (
         <div role="menu" className="theme-surface absolute right-0 top-12 z-50 min-w-48 overflow-hidden rounded-2xl border theme-border p-1.5 shadow-xl">
+          <PatientPreviewReturn />
           {resolvedCanAccessSettings && (
             <button
               type="button"
