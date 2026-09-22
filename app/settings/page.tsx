@@ -132,7 +132,8 @@ export default function SettingsPage() {
     if (morningPushEnabled) {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') { setMorningPushMessage('Debes permitir las notificaciones.'); return; }
-      const registration = await navigator.serviceWorker.register('/push-sw.js');
+      await navigator.serviceWorker.register('/push-sw.js');
+      const registration = await navigator.serviceWorker.ready;
       const vapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapid) { setMorningPushMessage('Falta configurar las notificaciones.'); return; }
       const bytes = Uint8Array.from(atob(vapid.replace(/-/g, '+').replace(/_/g, '/')), (char) => char.charCodeAt(0));
