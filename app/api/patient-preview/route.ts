@@ -14,6 +14,10 @@ export async function POST(request: Request) {
   if (error || !email) return Response.json({ error: 'No autorizado' }, { status: 403 });
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const { data, error: linkError } = await admin.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo: `${new URL(request.url).origin}/patient-preview` } });
-  if (linkError || !data.properties.action_link) return Response.json({ error: 'No se pudo iniciar el acceso' }, { status: 502 });
-  return Response.json({ link: data.properties.action_link });
+  const link = data?.properties?.action_link;
+  if (linkError || !link) {
+    console.error('No se pudo generar el acceso temporal', linkError);
+    return Response.json({ error: 'No se pudo iniciar el acceso' }, { status: 502 });
+  }
+  return Response.json({ link });
 }
