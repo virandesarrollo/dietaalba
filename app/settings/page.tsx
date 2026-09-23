@@ -32,6 +32,9 @@ export default function SettingsPage() {
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
   const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
   const [canTrackWater, setCanTrackWater] = useState(false);
+  const [canTrackNightBinges, setCanTrackNightBinges] = useState(false);
+  const [nightBingeStartTime, setNightBingeStartTime] = useState('22:00');
+  const [nightBingeMessage, setNightBingeMessage] = useState<string | null>(null);
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState('1');
   const [savingGymStep, setSavingGymStep] = useState(false);
@@ -80,6 +83,7 @@ export default function SettingsPage() {
       setCanTrackGymWorkouts(capabilities.canTrackGymWorkouts);
       setCanManageGymWorkouts(capabilities.canManageGymWorkouts);
       setCanTrackWater(capabilities.canTrackWater);
+      setCanTrackNightBinges(capabilities.canTrackNightBinges);
       const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
       setNavigationRoles(membershipResult.error ? [] : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []));
       if (capabilities.canTrackGymWorkouts) {
@@ -90,6 +94,7 @@ export default function SettingsPage() {
         const { data: water } = await supabase.rpc('get_my_water_preferences');
         if (isCurrent() && Array.isArray(water) && water[0]) { setWaterGoalMl(String(water[0].goal_ml)); setWaterGlassMl(String(water[0].glass_ml)); }
       }
+      if (capabilities.canTrackNightBinges) { const { data: night } = await supabase.rpc('get_my_night_binge_settings'); if (isCurrent() && Array.isArray(night) && night[0]) setNightBingeStartTime(night[0].start_time.slice(0, 5)); }
       const { data: morningPush } = await supabase.from('morning_push_preferences').select('enabled, send_time').eq('user_id', userId).maybeSingle();
       if (isCurrent() && morningPush) { setMorningPushEnabled(morningPush.enabled); setMorningPushTime(morningPush.send_time.slice(0, 5)); }
       } catch { if (isCurrent()) router.replace('/'); }
@@ -132,6 +137,7 @@ export default function SettingsPage() {
     const { error: waterError } = await supabase.rpc('set_my_water_preferences', { p_goal_ml: goal, p_glass_ml: glass });
     setWaterMessage(waterError ? 'No se pudo guardar el agua.' : 'Preferencias de agua guardadas.');
   }
+  async function saveNightBingeStartTime() { const { error } = await supabase.rpc('save_my_night_binge_settings', { p_start_time: nightBingeStartTime }); setNightBingeMessage(error ? 'No se pudo guardar la hora nocturna.' : 'Hora nocturna guardada.'); }
 
   async function saveMorningPush() {
     if (morningPushEnabled && (!('Notification' in window) || !('serviceWorker' in navigator))) { setMorningPushMessage('Este navegador no admite notificaciones push.'); return; }
@@ -210,6 +216,7 @@ export default function SettingsPage() {
 
         <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
         {canTrackWater && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Agua diaria</h2><p className="theme-muted mt-1 text-xs">Configura el objetivo y el tamaño de cada vaso.</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Objetivo (ml)<input type="number" min="250" value={waterGoalMl} onChange={(event) => setWaterGoalMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><label className="text-xs font-semibold">Vaso (ml)<input type="number" min="50" value={waterGlassMl} onChange={(event) => setWaterGlassMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label></div><button type="button" onClick={() => void saveWaterPreferences()} className="mt-4 min-h-12 rounded-2xl bg-cyan-500 px-5 font-semibold text-white">Guardar agua</button>{waterMessage && <p className="mt-2 text-xs" role="status">{waterMessage}</p>}</section>}
+        {canTrackNightBinges && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Control nocturno</h2><p className="theme-muted mt-1 text-xs">Define desde qué hora se activa la alarma.</p><label className="mt-4 block text-sm">Alarma desde<input type="time" value={nightBingeStartTime} onChange={(event) => setNightBingeStartTime(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><button type="button" onClick={() => void saveNightBingeStartTime()} className="mt-4 min-h-12 rounded-2xl bg-indigo-600 px-5 font-semibold text-white">Guardar hora</button>{nightBingeMessage && <p className="mt-2 text-xs" role="status">{nightBingeMessage}</p>}</section>}
 
         {canTrackGymWorkouts && (
           <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
