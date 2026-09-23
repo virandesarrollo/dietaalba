@@ -416,10 +416,11 @@ export default function AdminPage() {
     const applyFuture = window.confirm('¿Aplicar este plan a todos los días desde esta fecha?\n\nAceptar: todos los días futuros.\nCancelar: solo este día.');
     try {
       setSaving(true); setMessage(null);
+      const payload = buildMealPayload(drafts, mealGroups);
       const { data, error } = await supabase.rpc(applyFuture ? 'save_daily_plan_from_date' : 'save_daily_plan', {
         target_user: patientSnapshot,
         target_date: dateSnapshot,
-        meals: buildMealPayload(drafts, mealGroups),
+        meals: applyFuture ? payload.map((group) => ({ ...group, options: group.options.map(({ id: _id, ...option }) => option) })) : payload,
       });
       if (!isAuthCurrent(generation, userId)) return;
       if (error) {
