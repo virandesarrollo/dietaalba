@@ -31,6 +31,7 @@ export default function SettingsPage() {
   const [canChangeTheme, setCanChangeTheme] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
   const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
+  const [canTrackWater, setCanTrackWater] = useState(false);
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState('1');
   const [savingGymStep, setSavingGymStep] = useState(false);
@@ -54,8 +55,8 @@ export default function SettingsPage() {
     let active = true;
     let receivedAuthEvent = false;
     const clearIdentityState = () => {
-      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false);
-      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false);
+      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false); setCanTrackWater(false);
+      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
     };
     async function checkAccess(generation: number, userId: string, requestGeneration: number) {
       const isCurrent = () => active && generation === authGenerationRef.current && userId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current;
@@ -78,14 +79,17 @@ export default function SettingsPage() {
       setCanChangeTheme(capabilities.canChangeTheme);
       setCanTrackGymWorkouts(capabilities.canTrackGymWorkouts);
       setCanManageGymWorkouts(capabilities.canManageGymWorkouts);
+      setCanTrackWater(capabilities.canTrackWater);
       const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
       setNavigationRoles(membershipResult.error ? [] : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []));
       if (capabilities.canTrackGymWorkouts) {
         const { data: step } = await supabase.rpc('get_my_gym_weight_step');
         if (isCurrent() && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
       }
-      const { data: water } = await supabase.rpc('get_my_water_preferences');
-      if (isCurrent() && Array.isArray(water) && water[0]) { setWaterGoalMl(String(water[0].goal_ml)); setWaterGlassMl(String(water[0].glass_ml)); }
+      if (capabilities.canTrackWater) {
+        const { data: water } = await supabase.rpc('get_my_water_preferences');
+        if (isCurrent() && Array.isArray(water) && water[0]) { setWaterGoalMl(String(water[0].goal_ml)); setWaterGlassMl(String(water[0].glass_ml)); }
+      }
       const { data: morningPush } = await supabase.from('morning_push_preferences').select('enabled, send_time').eq('user_id', userId).maybeSingle();
       if (isCurrent() && morningPush) { setMorningPushEnabled(morningPush.enabled); setMorningPushTime(morningPush.send_time.slice(0, 5)); }
       } catch { if (isCurrent()) router.replace('/'); }
@@ -205,7 +209,7 @@ export default function SettingsPage() {
       <div className="px-5 pt-7">
 
         <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
-        <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Agua diaria</h2><p className="theme-muted mt-1 text-xs">Configura el objetivo y el tamaño de cada vaso.</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Objetivo (ml)<input type="number" min="250" value={waterGoalMl} onChange={(event) => setWaterGoalMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><label className="text-xs font-semibold">Vaso (ml)<input type="number" min="50" value={waterGlassMl} onChange={(event) => setWaterGlassMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label></div><button type="button" onClick={() => void saveWaterPreferences()} className="mt-4 min-h-12 rounded-2xl bg-cyan-500 px-5 font-semibold text-white">Guardar agua</button>{waterMessage && <p className="mt-2 text-xs" role="status">{waterMessage}</p>}</section>
+        {canTrackWater && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Agua diaria</h2><p className="theme-muted mt-1 text-xs">Configura el objetivo y el tamaño de cada vaso.</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Objetivo (ml)<input type="number" min="250" value={waterGoalMl} onChange={(event) => setWaterGoalMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><label className="text-xs font-semibold">Vaso (ml)<input type="number" min="50" value={waterGlassMl} onChange={(event) => setWaterGlassMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label></div><button type="button" onClick={() => void saveWaterPreferences()} className="mt-4 min-h-12 rounded-2xl bg-cyan-500 px-5 font-semibold text-white">Guardar agua</button>{waterMessage && <p className="mt-2 text-xs" role="status">{waterMessage}</p>}</section>}
 
         {canTrackGymWorkouts && (
           <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
