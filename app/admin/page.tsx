@@ -413,9 +413,10 @@ export default function AdminPage() {
     if (!mutationLock.tryAcquire()) return;
     const patientSnapshot = selectedPatientId;
     const dateSnapshot = selectedDate;
+    const applyFuture = window.confirm('¿Aplicar este plan a todos los días desde esta fecha?\n\nAceptar: todos los días futuros.\nCancelar: solo este día.');
     try {
       setSaving(true); setMessage(null);
-      const { data, error } = await supabase.rpc('save_daily_plan', {
+      const { data, error } = await supabase.rpc(applyFuture ? 'save_daily_plan_from_date' : 'save_daily_plan', {
         target_user: patientSnapshot,
         target_date: dateSnapshot,
         meals: buildMealPayload(drafts, mealGroups),
@@ -429,7 +430,7 @@ export default function AdminPage() {
         if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
           setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[], mealGroups) as MealDrafts);
         }
-        setMessage({ type: 'success', text: 'Plan guardado correctamente.' });
+        setMessage({ type: 'success', text: applyFuture ? 'Plan aplicado desde hoy en adelante.' : 'Plan guardado correctamente.' });
       }
     } catch {
       if (isAuthCurrent(generation, userId)) setMessage({ type: 'error', text: 'No se pudo guardar el plan completo. Inténtalo de nuevo.' });
