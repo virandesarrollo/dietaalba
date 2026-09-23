@@ -16,7 +16,6 @@ export type MealPayloadOption = {
 
 export type MealPayload<T extends string = string> = {
   meal_type: T;
-  meal_order: number;
   options: MealPayloadOption[];
 };
 
