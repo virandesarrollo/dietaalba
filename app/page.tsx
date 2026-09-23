@@ -959,7 +959,7 @@ export default function Home() {
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" aria-label="Ver autocontrol semanal" onClick={() => setShowWeeklyControl((open) => !open)} className="min-h-10 rounded-full bg-white/80 px-3 text-lg shadow-sm">📊</button>
+            <button type="button" aria-label="Ver autocontrol semanal" onClick={() => setShowWeeklyControl((open) => !open)} className="relative flex min-h-10 min-w-10 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 via-rose-500 to-purple-600 px-3 text-lg shadow-md ring-2 ring-white/70">🔥{weeklyControl.length > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-slate-900 px-1.5 text-[10px] font-bold text-white">{weeklyControl.filter((day) => day.pending === 0 && day.snacks === 0 && day.night_binges === 0).length}</span>}</button>
             <AccountMenu
               email={session.user.email ?? ''}
               canAccessSettings={canAccessSettings}
