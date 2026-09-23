@@ -109,6 +109,7 @@ export default function Home() {
   const [showSnackDialog, setShowSnackDialog] = useState(false);
   const [snackText, setSnackText] = useState('');
   const [snacks, setSnacks] = useState<SnackLog[]>([]);
+  const [editingSnack, setEditingSnack] = useState<SnackLog | null>(null);
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
@@ -377,6 +378,8 @@ export default function Home() {
     if (error) setPlanError('No se pudo registrar el picoteo.');
     else { setSnackText(''); setShowSnackDialog(false); void fetchData(selectedDate); }
   }
+  async function updateSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText }); if (error) setPlanError('No se pudo editar el picoteo.'); else { setEditingSnack(null); setSnackText(''); void fetchData(selectedDate); } }
+  async function deleteSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('delete_my_snack_log', { p_id: editingSnack.id }); if (error) setPlanError('No se pudo borrar el picoteo.'); else { setEditingSnack(null); void fetchData(selectedDate); } }
 
   useEffect(() => {
     if (session) {
@@ -992,7 +995,8 @@ export default function Home() {
             <div className="mt-3 flex gap-2"><button type="button" disabled={isHistoricalDay || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isHistoricalDay} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
           {showSnackDialog && <div className="mb-4 rounded-3xl border-2 border-red-600 bg-white p-5 shadow-lg" role="alertdialog" aria-label="Registrar picoteo"><h2 className="text-lg font-bold text-red-800">Te estás cargando tu progreso.</h2><p className="mt-2 text-sm font-semibold text-red-700">No es hambre: es una decisión que aleja tus objetivos. Si lo haces, regístralo.</p><textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} className="mt-4 min-h-24 w-full rounded-xl border p-3" placeholder="Qué vas a tomar" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => setShowSnackDialog(false)} className="min-h-11 flex-1 rounded-xl bg-slate-100 font-semibold">No picar</button><button type="button" onClick={() => void saveSnack()} disabled={!snackText.trim()} className="min-h-11 flex-1 rounded-xl bg-red-800 font-semibold text-white disabled:opacity-40">Registrar picoteo</button></div></div>}
-          {canTrackSnacks && snacks.map((snack) => <p key={snack.id} className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">⚠ Picoteo {new Date(snack.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {snack.text}</p>)}
+          {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" onClick={() => { if (!isHistoricalDay) { setEditingSnack(snack); setSnackText(snack.text); } }} className="mb-3 block w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-800">⚠ Picoteo {new Date(snack.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {snack.text}{!isHistoricalDay && <span className="ml-2 font-bold">Editar</span>}</button>)}
+          {editingSnack && <div className="mb-4 rounded-3xl border-2 border-red-600 bg-white p-5 shadow-lg" role="alertdialog" aria-label="Editar picoteo"><h2 className="text-lg font-bold text-red-800">Editar picoteo</h2><textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} className="mt-4 min-h-24 w-full rounded-xl border p-3" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => setEditingSnack(null)} className="min-h-11 flex-1 rounded-xl bg-slate-100 font-semibold">Cancelar</button><button type="button" onClick={() => void deleteSnack()} className="min-h-11 flex-1 rounded-xl bg-red-100 font-semibold text-red-800">Borrar</button><button type="button" onClick={() => void updateSnack()} disabled={!snackText.trim()} className="min-h-11 flex-1 rounded-xl bg-red-800 font-semibold text-white disabled:opacity-40">Guardar</button></div></div>}
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
