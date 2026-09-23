@@ -9,7 +9,7 @@ export type FeatureCode =
   | 'track_weight'
   | 'track_blood_pressure'
   | 'track_water'
-  | 'track_snacks' | 'track_night_binges';
+  | 'track_snacks' | 'track_night_binges' | 'patient_friends' | 'friend_challenges';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
@@ -25,6 +25,8 @@ export type FeatureCapabilities = {
   canTrackWater: boolean;
   canTrackSnacks: boolean;
   canTrackNightBinges: boolean;
+  canUsePatientFriends: boolean;
+  canUseFriendChallenges: boolean;
 };
 
 export function deriveFeatureCapabilities(
