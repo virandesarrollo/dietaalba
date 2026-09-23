@@ -70,6 +70,7 @@ type Recipe = {
   recipe_url?: string | null;
 };
 type SnackLog = { id: string; recorded_at: string; text: string };
+type NightBingeLog = SnackLog;
 
 type SourceDay = {
   date: string;
@@ -97,7 +98,7 @@ export default function Home() {
   const [featureError, setFeatureError] = useState<string | null>(null);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges } = featureCapabilities;
   const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
@@ -111,6 +112,10 @@ export default function Home() {
   const [snackText, setSnackText] = useState('');
   const [snacks, setSnacks] = useState<SnackLog[]>([]);
   const [editingSnack, setEditingSnack] = useState<SnackLog | null>(null);
+  const [nightBingeStartTime, setNightBingeStartTime] = useState('22:00');
+  const [nightBingeLogs, setNightBingeLogs] = useState<NightBingeLog[]>([]);
+  const [showNightBingeDialog, setShowNightBingeDialog] = useState(false);
+  const [nightBingeText, setNightBingeText] = useState('');
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
@@ -324,6 +329,10 @@ export default function Home() {
       const { data } = await supabase.rpc('get_my_snack_logs', { p_date: targetDate });
       if (requestGuard.isCurrent(request)) commit(() => setSnacks(Array.isArray(data) ? data as SnackLog[] : []));
     } else commit(() => setSnacks([]));
+    if (nextCapabilities.canTrackNightBinges) {
+      const [settingsResult, logsResult] = await Promise.all([supabase.rpc('get_my_night_binge_settings'), supabase.rpc('get_my_night_binge_logs', { p_date: targetDate })]);
+      if (requestGuard.isCurrent(request)) commit(() => { setNightBingeStartTime(Array.isArray(settingsResult.data) && settingsResult.data[0]?.start_time ? settingsResult.data[0].start_time.slice(0, 5) : '22:00'); setNightBingeLogs(Array.isArray(logsResult.data) ? logsResult.data as NightBingeLog[] : []); });
+    } else commit(() => { setNightBingeStartTime('22:00'); setNightBingeLogs([]); });
 
     // 2. Cargar notas/ratings solo si alguna función autorizada los necesita
     if (nextCapabilities.canOpenNotes) {
@@ -381,6 +390,10 @@ export default function Home() {
   }
   async function updateSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText }); if (error) setPlanError('No se pudo editar el picoteo.'); else { setEditingSnack(null); setSnackText(''); void fetchData(selectedDate); } }
   async function deleteSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('delete_my_snack_log', { p_id: editingSnack.id }); if (error) setPlanError('No se pudo borrar el picoteo.'); else { setEditingSnack(null); void fetchData(selectedDate); } }
+  async function saveNightBinge() { const { error } = await supabase.rpc('save_my_night_binge_log', { p_text: nightBingeText }); if (error) setPlanError('No se pudo registrar el control nocturno.'); else { setNightBingeText(''); setShowNightBingeDialog(false); void fetchData(selectedDate); } }
+  async function saveNightBingeStartTime(value: string) { setNightBingeStartTime(value); const { error } = await supabase.rpc('save_my_night_binge_settings', { p_start_time: value }); if (error) setPlanError('No se pudo guardar la hora nocturna.'); }
+  const madridNowTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const canShowNightBingeAlarm = canTrackNightBinges && selectedDate === madridDateString() && madridNowTime >= nightBingeStartTime;
 
   useEffect(() => {
     if (session) {
@@ -995,6 +1008,7 @@ export default function Home() {
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100"><div className="h-full bg-cyan-500" style={{ width: `${Math.min(100, waterMl / waterGoalMl * 100)}%` }} /></div>
             <div className="mt-3 flex gap-2"><button type="button" disabled={isHistoricalDay || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isHistoricalDay} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
+          {canTrackNightBinges && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde <input aria-label="Hora de inicio nocturno" type="time" value={nightBingeStartTime} onChange={(event) => void saveNightBingeStartTime(event.target.value)} className="rounded border bg-white px-1" /></p></div>{canShowNightBingeAlarm && <button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button>}</div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
           {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" onClick={() => { if (!isHistoricalDay) { setEditingSnack(snack); setSnackText(snack.text); } }} className="mb-3 block w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-800">⚠ Picoteo {new Date(snack.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {snack.text}{!isHistoricalDay && <span className="ml-2 font-bold">Editar</span>}</button>)}
           {editingSnack && <div className="mb-4 rounded-3xl border-2 border-red-600 bg-white p-5 shadow-lg" role="alertdialog" aria-label="Editar picoteo"><h2 className="text-lg font-bold text-red-800">Editar picoteo</h2><textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} className="mt-4 min-h-24 w-full rounded-xl border p-3" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => setEditingSnack(null)} className="min-h-11 flex-1 rounded-xl bg-slate-100 font-semibold">Cancelar</button><button type="button" onClick={() => void deleteSnack()} className="min-h-11 flex-1 rounded-xl bg-red-100 font-semibold text-red-800">Borrar</button><button type="button" onClick={() => void updateSnack()} disabled={!snackText.trim()} className="min-h-11 flex-1 rounded-xl bg-red-800 font-semibold text-white disabled:opacity-40">Guardar</button></div></div>}
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}

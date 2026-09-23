@@ -49,6 +49,7 @@ const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'track_blood_pressure', label: 'Registrar tensión' },
   { code: 'track_water', label: 'Registrar agua' },
   { code: 'track_snacks', label: 'Registrar picoteos' },
+  { code: 'track_night_binges', label: 'Control nocturno' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
