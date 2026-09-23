@@ -116,6 +116,8 @@ export default function Home() {
   const [nightBingeLogs, setNightBingeLogs] = useState<NightBingeLog[]>([]);
   const [showNightBingeDialog, setShowNightBingeDialog] = useState(false);
   const [nightBingeText, setNightBingeText] = useState('');
+  const [showWeeklyControl, setShowWeeklyControl] = useState(false);
+  const [weeklyControl, setWeeklyControl] = useState<Array<{ day: string; completed: number; pending: number; free_meals: number; snacks: number; night_binges: number }>>([]);
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
@@ -400,6 +402,11 @@ export default function Home() {
       fetchData(selectedDate);
     }
   }, [selectedDate, session, authGeneration, fetchData]);
+
+  useEffect(() => {
+    if (!session || !showWeeklyControl) return;
+    supabase.rpc('get_my_weekly_self_control').then(({ data }) => setWeeklyControl(Array.isArray(data) ? data : []));
+  }, [session, showWeeklyControl]);
 
   // Agrupación de recetas por tipo para el desplegable
   const groupedRecipes = useMemo(() => {
@@ -951,13 +958,15 @@ export default function Home() {
           ) : (
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
-          <div className="shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" aria-label="Ver autocontrol semanal" onClick={() => setShowWeeklyControl((open) => !open)} className="min-h-10 rounded-full bg-white/80 px-3 text-lg shadow-sm">📊</button>
             <AccountMenu
               email={session.user.email ?? ''}
               canAccessSettings={canAccessSettings}
             />
           </div>
         </div>
+        {showWeeklyControl && <section aria-label="Autocontrol semanal" className="mb-3 rounded-2xl bg-white/90 p-4 text-xs shadow"><div className="mb-2 flex items-center justify-between"><h2 className="font-bold text-slate-800">Autocontrol semanal</h2><button type="button" onClick={() => setShowWeeklyControl(false)}>×</button></div><div className="grid grid-cols-2 gap-2 text-slate-700"><p>✅ Comidas bien: {weeklyControl.reduce((n, day) => n + day.completed, 0)}</p><p>⏳ Sin registrar: {weeklyControl.reduce((n, day) => n + day.pending, 0)}</p><p>⚠ Picoteos: {weeklyControl.reduce((n, day) => n + day.snacks, 0)}</p><p>🚨 Nocturnos: {weeklyControl.reduce((n, day) => n + day.night_binges, 0)}</p><p>🍽 Libres: {weeklyControl.reduce((n, day) => n + day.free_meals, 0)}</p><p className="font-bold text-emerald-700">🔥 {weeklyControl.filter((day) => day.pending === 0 && day.snacks === 0 && day.night_binges === 0).length} días haciéndolo bien</p></div></section>}
 
         {canOpenNotes && (
           <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-white/60 p-1" aria-label="Contenido de Mi dieta">
