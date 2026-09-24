@@ -440,7 +440,7 @@ export default function Home() {
 
   async function selectMealOption(mealId: string, currentStatus: boolean) {
     const userId = session?.user?.id;
-    if (!userId || loading || planRefreshRequired || selectedDate !== madridDateString()) return;
+    if (!userId || loading || planRefreshRequired || isOutsidePersonalCorrectionWindow) return;
     const targetMeal = meals.find(meal => meal.id === mealId);
     if (!targetMeal) return;
     const mealType = targetMeal.meal_type;
@@ -1242,7 +1242,7 @@ export default function Home() {
                           const nextMeal = options[nextIndex];
                           if (!nextMeal.is_completed) void selectMealOption(nextMeal.id, false);
                         }}
-                        disabled={selectedDate !== madridDateString() || loading}
+                        disabled={isOutsidePersonalCorrectionWindow || loading}
                         aria-disabled={mutatingPlan || planRefreshRequired}
                         className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
                           meal.is_completed
