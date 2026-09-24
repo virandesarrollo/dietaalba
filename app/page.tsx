@@ -99,7 +99,7 @@ export default function Home() {
   const [featureError, setFeatureError] = useState<string | null>(null);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canUsePatientFriends, canTrackCalories } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories } = featureCapabilities;
   const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
@@ -967,7 +967,6 @@ export default function Home() {
             <AccountMenu
               email={session.user.email ?? ''}
               canAccessSettings={canAccessSettings}
-              canUsePatientFriends={canUsePatientFriends}
             />
           </div>
         </div>
