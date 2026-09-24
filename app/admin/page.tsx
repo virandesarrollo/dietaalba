@@ -47,6 +47,7 @@ type DailyPlanRow = {
   option_order: number | null;
   meal_order: number | null;
   created_at: string;
+  kcal: number | null;
 };
 
 type MealDraft = {
@@ -56,6 +57,7 @@ type MealDraft = {
   ingredients: string;
   recipeUrl: string;
   isCompleted: boolean;
+  kcal: string;
 };
 
 type MealType = string;
@@ -66,7 +68,7 @@ function createClientKey(): string {
 }
 
 function emptyMealDraft(): MealDraft {
-  return { clientKey: createClientKey(), title: '', ingredients: '', recipeUrl: '', isCompleted: false };
+  return { clientKey: createClientKey(), title: '', ingredients: '', recipeUrl: '', isCompleted: false, kcal: '' };
 }
 
 function emptyDrafts(): MealDrafts {
@@ -288,7 +290,7 @@ export default function AdminPage() {
       try {
         const { data, error } = await supabase
           .from('daily_plan')
-          .select('id, meal_type, meal_order, title, ingredients, recipe_url, is_completed, option_order, created_at')
+          .select('id, meal_type, meal_order, title, ingredients, recipe_url, is_completed, option_order, created_at, kcal')
           .eq('user_id', selectedPatientId)
           .eq('date', selectedDate);
         if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return;
@@ -305,6 +307,7 @@ export default function AdminPage() {
               ingredients: row.ingredients ?? '',
               recipeUrl: row.recipe_url ?? '',
               isCompleted: row.is_completed ?? false,
+              kcal: row.kcal == null ? '' : String(row.kcal),
             }));
           }
         }
@@ -336,7 +339,7 @@ export default function AdminPage() {
   const contextDisabled = loadingPlan || saving || importOpen;
   const editingDisabled = !isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay;
 
-  function updateOption(mealType: string, index: number, field: 'title' | 'ingredients', value: string) {
+  function updateOption(mealType: string, index: number, field: 'title' | 'ingredients' | 'kcal', value: string) {
     if (editingDisabled) return;
     setDrafts((current) => ({
       ...current,
@@ -704,6 +707,23 @@ export default function AdminPage() {
                           disabled={!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay}
                           rows={5}
                           className="mt-2 w-full resize-none rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal leading-6 text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
+                        />
+                      </label>
+
+                      <label className="mt-4 block text-xs font-semibold text-slate-600">
+                        Kcal aproximadas
+                        <input
+                          id={`meal-${index}-option-${optionIndex}-kcal`}
+                          name={`meal-${index}-option-${optionIndex}-kcal`}
+                          type="number"
+                          min="0"
+                          max="10000"
+                          step="1"
+                          value={draft.kcal}
+                          onChange={(event) => updateOption(key, optionIndex, 'kcal', event.target.value)}
+                          placeholder="Ej. 450"
+                          disabled={!isPlanReady || loadingPlan || saving || importOpen || isHistoricalDay}
+                          className="mt-2 w-full rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-normal text-slate-700 outline-none ring-rose-200 placeholder:text-slate-300 focus:ring-2 disabled:cursor-not-allowed"
                         />
                       </label>
                     </section>
