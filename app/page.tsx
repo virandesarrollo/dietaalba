@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Session } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
@@ -91,6 +92,7 @@ const formatDateString = (d: Date) => {
 };
 
 export default function Home() {
+  const router = useRouter();
   const confirmDialog = useConfirmDialog();
   const [session, setSession] = useState<Session | null>(null);
   const [authGeneration, setAuthGeneration] = useState<number>(0);
@@ -119,8 +121,6 @@ export default function Home() {
   const [nightBingeLogs, setNightBingeLogs] = useState<NightBingeLog[]>([]);
   const [showNightBingeDialog, setShowNightBingeDialog] = useState(false);
   const [nightBingeText, setNightBingeText] = useState('');
-  const [showWeeklyControl, setShowWeeklyControl] = useState(false);
-  const [weeklyControl, setWeeklyControl] = useState<Array<{ day: string; completed: number; pending: number; free_meals: number; snacks: number; night_binges: number }>>([]);
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const completedCalories = useMemo(() => meals.filter((meal) => meal.is_completed).reduce((total, meal) => total + (meal.kcal ?? 0), 0), [meals]);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -406,11 +406,6 @@ export default function Home() {
       fetchData(selectedDate);
     }
   }, [selectedDate, session, authGeneration, fetchData]);
-
-  useEffect(() => {
-    if (!session || !showWeeklyControl) return;
-    supabase.rpc('get_my_weekly_self_control').then(({ data }) => setWeeklyControl(Array.isArray(data) ? data : []));
-  }, [session, showWeeklyControl]);
 
   // Agrupación de recetas por tipo para el desplegable
   const groupedRecipes = useMemo(() => {
@@ -963,15 +958,13 @@ export default function Home() {
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" aria-label="Ver autocontrol semanal" onClick={() => setShowWeeklyControl((open) => !open)} className="relative flex min-h-10 min-w-10 items-center justify-center px-1 text-2xl">🔥{weeklyControl.length > 0 && <span className="absolute -right-1 top-0 rounded-full bg-slate-900 px-1.5 text-[10px] font-bold text-white">{weeklyControl.filter((day) => day.pending === 0 && day.snacks === 0 && day.night_binges === 0).length}</span>}</button>
+            <button type="button" aria-label="Ver autocontrol semanal" onClick={() => router.push('/self-control')} className="flex min-h-10 min-w-10 items-center justify-center px-1 text-2xl">🔥</button>
             <AccountMenu
               email={session.user.email ?? ''}
               canAccessSettings={canAccessSettings}
             />
           </div>
         </div>
-        {showWeeklyControl && <section aria-label="Autocontrol semanal" className="mb-3 rounded-2xl bg-white/90 p-4 text-xs shadow"><div className="mb-2 flex items-center justify-between"><h2 className="font-bold text-slate-800">Autocontrol semanal</h2><button type="button" onClick={() => setShowWeeklyControl(false)}>×</button></div><div className="grid grid-cols-2 gap-2 text-slate-700"><p>✅ Comidas bien: {weeklyControl.reduce((n, day) => n + day.completed, 0)}</p><p>⏳ Sin registrar: {weeklyControl.reduce((n, day) => n + day.pending, 0)}</p><p>⚠ Picoteos: {weeklyControl.reduce((n, day) => n + day.snacks, 0)}</p><p>🚨 Nocturnos: {weeklyControl.reduce((n, day) => n + day.night_binges, 0)}</p><p>🍽 Libres: {weeklyControl.reduce((n, day) => n + day.free_meals, 0)}</p><p className="font-bold text-emerald-700">🔥 {weeklyControl.filter((day) => day.pending === 0 && day.snacks === 0 && day.night_binges === 0).length} días haciéndolo bien</p></div></section>}
-
         {canOpenNotes && (
           <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-white/60 p-1" aria-label="Contenido de Mi dieta">
             <button type="button" onClick={() => setCurrentTab('plan')} aria-pressed={currentTab === 'plan'} className={`min-h-12 rounded-xl px-3 text-sm font-semibold transition ${currentTab === 'plan' ? 'bg-white text-pink-500 shadow-sm' : 'text-slate-500'}`}>
