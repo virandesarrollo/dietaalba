@@ -6,7 +6,7 @@ import { ArrowLeft, CheckCircle2, Flame, UtensilsCrossed } from 'lucide-react';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { supabase } from '@/lib/supabase';
 
-type WeeklyDay = { day: string; completed: number; pending: number; free_meals: number; snacks: number; night_binges: number };
+type WeeklyDay = { report_date: string; completed: number; pending: number; free_meals: number; snacks: number; night_binges: number };
 
 const dayLabel = (date: string) => new Intl.DateTimeFormat('es-ES', { weekday: 'short' }).format(new Date(`${date}T12:00:00`)).replace('.', '');
 
@@ -85,7 +85,7 @@ export default function SelfControlPage() {
           <section className="rounded-[2rem] bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2"><CheckCircle2 className="text-emerald-500" size={20} /><div><h2 className="font-black text-slate-800">Evolución diaria</h2><p className="text-xs text-slate-500">Comidas bien frente a incidencias</p></div></div>
             <div className="mt-6 flex h-44 items-end justify-between gap-2">
-              {days.map((day) => { const incidents = day.pending + day.snacks + day.night_binges; const height = ((day.completed + incidents) / maxDayValue) * 100; const completedHeight = day.completed + incidents ? (day.completed / (day.completed + incidents)) * 100 : 0; return <div key={day.day} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className="flex w-full max-w-8 flex-col overflow-hidden rounded-t-xl bg-rose-200" style={{ height: `${Math.max(height, 4)}%` }}><div className="w-full bg-emerald-400" style={{ height: `${completedHeight}%` }} /></div><span className="text-[10px] font-bold uppercase text-slate-400">{dayLabel(day.day)}</span></div>; })}
+              {days.map((day) => { const incidents = day.pending + day.snacks + day.night_binges; const height = ((day.completed + incidents) / maxDayValue) * 100; const completedHeight = day.completed + incidents ? (day.completed / (day.completed + incidents)) * 100 : 0; return <div key={day.report_date} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className="flex w-full max-w-8 flex-col overflow-hidden rounded-t-xl bg-rose-200" style={{ height: `${Math.max(height, 4)}%` }}><div className="w-full bg-emerald-400" style={{ height: `${completedHeight}%` }} /></div><span className="text-[10px] font-bold uppercase text-slate-400">{dayLabel(day.report_date)}</span></div>; })}
             </div>
             <div className="mt-4 flex gap-4 text-[11px] font-semibold text-slate-500"><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Bien</span><span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-200" />Pendiente o incidencia</span></div>
           </section>
