@@ -329,3 +329,125 @@ main.theme-page > form.fixed {
     grid-column: auto;
   }
 }
+
+.snack-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  min-height: 4.5rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1.25rem;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.07);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+[data-theme='alba'] .snack-card {
+  border-color: #fecdd3;
+  background: #fff8f7;
+}
+
+[data-theme='dark'] .snack-card {
+  border-color: #3f4655;
+  background: #1b1f27;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.24);
+}
+
+.snack-card:not(:disabled):hover {
+  border-color: color-mix(in srgb, #ef4444 45%, var(--app-border));
+  box-shadow: 0 12px 30px rgb(15 23 42 / 0.12);
+  transform: translateY(-1px);
+}
+
+.snack-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #ef4444 20%, transparent);
+}
+
+.snack-card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.snack-card-icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #c8101e;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+[data-theme='dark'] .snack-card-icon {
+  background: #3a2027;
+  color: #fca5a5;
+}
+
+.snack-card-content {
+  display: grid;
+  min-width: 0;
+  gap: 0.45rem;
+}
+
+.snack-card-description {
+  overflow-wrap: anywhere;
+  color: var(--app-heading);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.snack-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.snack-card-time,
+.snack-card-kcal {
+  border-radius: 999px;
+  background: var(--app-surface-soft);
+  padding: 0.28rem 0.55rem;
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.snack-card-kcal {
+  color: #b45309;
+}
+
+[data-theme='dark'] .snack-card-kcal {
+  color: #fbbf24;
+}
+
+.snack-card-edit {
+  border-radius: 999px;
+  background: color-mix(in srgb, #ef4444 10%, var(--app-surface-soft));
+  color: #c8101e;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+[data-theme='dark'] .snack-card-edit {
+  color: #fca5a5;
+}
+
+@media (max-width: 380px) {
+  .snack-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .snack-card-edit {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
