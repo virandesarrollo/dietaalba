@@ -6,3 +6,10 @@ export function normalizeChallenge<T extends object>(challenge: T): T & {
 };
 
 export function challengeProgress(myScore: unknown, opponentScore: unknown): number;
+
+export function weekStartFromDateString(dateString: unknown): string;
+
+export function challengedFriendIdsForWeek(
+  challenges: unknown,
+  weekStart: string,
+): Set<string>;
