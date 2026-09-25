@@ -494,7 +494,8 @@ export default function Home() {
     const { data: planMeals } = await supabase
       .from('daily_plan')
       .select('title, meal_type, ingredients, recipe_url, is_free_meal')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .eq('date', selectedDate);
     if (!requestGuard.isCurrent(request)) return;
 
     const allRecipes: Recipe[] = [];
