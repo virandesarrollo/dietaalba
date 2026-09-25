@@ -127,10 +127,12 @@ export default function Home() {
   const [nightBingeLogs, setNightBingeLogs] = useState<NightBingeLog[]>([]);
   const [showNightBingeDialog, setShowNightBingeDialog] = useState(false);
   const [nightBingeText, setNightBingeText] = useState('');
+  const [nightBingeKcal, setNightBingeKcal] = useState('');
   const groupedMeals = useMemo(() => groupMealOptions(meals), [meals]);
   const completedCalories = useMemo(() => meals.filter((meal) => meal.is_completed).reduce((total, meal) => total + (meal.kcal ?? 0), 0), [meals]);
   const snackCalories = useMemo(() => snacks.reduce((total, snack) => total + (snack.kcal ?? 0), 0), [snacks]);
-  const totalDailyCalories = completedCalories + snackCalories;
+  const nightBingeCalories = useMemo(() => nightBingeLogs.reduce((total, log) => total + (log.kcal ?? 0), 0), [nightBingeLogs]);
+  const totalDailyCalories = completedCalories + snackCalories + nightBingeCalories;
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
   const [planRefreshRequired, setPlanRefreshRequired] = useState(false);
@@ -422,6 +424,16 @@ export default function Home() {
     return value;
   }
 
+  function nightBingeKcalForSave(): number | null | undefined {
+    if (!canTrackCalories || nightBingeKcal.trim() === '') return null;
+    const value = Number(nightBingeKcal);
+    if (!Number.isInteger(value) || value < 0 || value > 10000) {
+      setPlanError('Las kcal del control nocturno deben estar entre 0 y 10.000.');
+      return undefined;
+    }
+    return value;
+  }
+
   function selectPersonalCraving(craving: PersonalCraving) {
     setSnackText(craving.text);
     setSnackKcal(craving.kcal == null ? '' : String(craving.kcal));
@@ -500,7 +512,25 @@ export default function Home() {
   }
   async function updateSnack() { if (!editingSnack) return; const kcal = snackKcalForSave(); if (kcal === undefined) return; if (!navigator.onLine) { await queueOfflineRpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setEditingSnack(null); setSnackText(''); setSnackKcal(''); return; } const { error } = await supabase.rpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal }); if (error) setPlanError('No se pudo editar el picoteo.'); else { await upsertPersonalCraving(snackText, kcal); setEditingSnack(null); setSnackText(''); setSnackKcal(''); void fetchData(selectedDate); } }
   async function deleteSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('delete_my_snack_log', { p_id: editingSnack.id }); if (error) setPlanError('No se pudo borrar el picoteo.'); else { setEditingSnack(null); void fetchData(selectedDate); } }
-  async function saveNightBinge() { if (!navigator.onLine) { await queueOfflineRpc('save_my_night_binge_log', { p_text: nightBingeText, p_recorded_at: new Date().toISOString() }); setNightBingeText(''); setShowNightBingeDialog(false); return; } const { error } = await supabase.rpc('save_my_night_binge_log', { p_text: nightBingeText }); if (error) setPlanError('No se pudo registrar el control nocturno.'); else { setNightBingeText(''); setShowNightBingeDialog(false); void fetchData(selectedDate); } }
+  async function saveNightBinge() {
+    const kcal = nightBingeKcalForSave();
+    if (kcal === undefined) return;
+    if (!navigator.onLine) {
+      await queueOfflineRpc('save_my_night_binge_log', { p_text: nightBingeText, p_recorded_at: new Date().toISOString(), p_kcal: kcal });
+      setNightBingeText('');
+      setNightBingeKcal('');
+      setShowNightBingeDialog(false);
+      return;
+    }
+    const { error } = await supabase.rpc('save_my_night_binge_log', { p_text: nightBingeText, p_kcal: kcal });
+    if (error) setPlanError('No se pudo registrar el control nocturno.');
+    else {
+      setNightBingeText('');
+      setNightBingeKcal('');
+      setShowNightBingeDialog(false);
+      void fetchData(selectedDate);
+    }
+  }
   async function saveNightBingeStartTime(value: string) { setNightBingeStartTime(value); const { error } = await supabase.rpc('save_my_night_binge_settings', { p_start_time: value }); if (error) setPlanError('No se pudo guardar la hora nocturna.'); }
   const madridNowTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
   const canShowNightBingeAlarm = canTrackNightBinges && selectedDate === madridDateString() && madridNowTime >= nightBingeStartTime;
@@ -1122,7 +1152,7 @@ export default function Home() {
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
                 <span className="kcal-summary-copy">
                   <strong className="kcal-summary-value">{totalDailyCalories} kcal consumidas</strong>
-                  <span className="kcal-summary-label">Comidas + picoteos de hoy</span>
+                  <span className="kcal-summary-label">Comidas + picoteos + nocturnos</span>
                 </span>
               </div>
             )}
@@ -1150,7 +1180,7 @@ export default function Home() {
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100"><div className="h-full bg-cyan-500" style={{ width: `${Math.min(100, waterMl / waterGoalMl * 100)}%` }} /></div>
             <div className="mt-3 flex gap-2"><button type="button" disabled={isOutsidePersonalCorrectionWindow || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
-          {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
+          {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text} {canTrackCalories && log.kcal != null && <span>⚡ {log.kcal} kcal</span>}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" />{canTrackCalories && <label className="snack-dialog-field"><span>Kcal aproximadas</span><input aria-label="Kcal del control nocturno" type="number" min="0" max="10000" step="1" value={nightBingeKcal} onChange={(event) => setNightBingeKcal(event.target.value)} placeholder="0" /></label>}<div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
           {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => handleSnackCardClick(snack)} className="snack-card">
             <span className="snack-card-icon" aria-hidden="true">!</span>
             <span className="snack-card-content">
