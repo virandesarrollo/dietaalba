@@ -1386,6 +1386,7 @@ export default function Home() {
               {Object.entries(groupedMeals).map(([mealType, options]) => {
                 const groupCompleted = options.some(option => option.is_completed);
                 const groupSkipped = skippedMealTypes.has(mealType);
+                const groupResolved = groupCompleted || groupSkipped;
 
                 return (<React.Fragment key={mealType}>
                 {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">⚠ Voy a picar</button></section>}
@@ -1404,6 +1405,15 @@ export default function Home() {
                       </span>
                     )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => void toggleMealSkipped(options[0].id)}
+                    aria-pressed={groupSkipped}
+                    disabled={isOutsidePersonalMealMutationWindow || loading || mutatingPlan || planRefreshRequired}
+                    className={`meal-skip-button ${groupSkipped ? 'is-skipped' : ''}`}
+                  >
+                    {groupSkipped ? 'Comida saltada · Deshacer' : 'Hoy me la salto'}
+                  </button>
                   <div role={options.length > 1 ? 'radiogroup' : undefined} aria-label={mealType} className="space-y-2">
                   {options.map((meal, optionIndex) => {
                 const review = reviews[meal.title];
@@ -1416,7 +1426,7 @@ export default function Home() {
                   <div 
                     key={meal.id} 
                     className={`bg-white p-4 rounded-3xl shadow-sm border transition-all ${
-                      groupCompleted 
+                      groupResolved 
                         ? 'opacity-60 bg-slate-50/80 border-slate-100' 
                         : meal.is_free_meal 
                           ? 'border-amber-200/70 bg-gradient-to-b from-white to-amber-50/20' 
@@ -1448,7 +1458,7 @@ export default function Home() {
                           </button>
                         </div>
 
-                        <h3 className={`font-medium text-slate-800 text-sm ${groupCompleted ? 'line-through text-slate-400' : ''}`}>
+                        <h3 className={`font-medium text-slate-800 text-sm ${groupResolved ? 'line-through text-slate-400' : ''}`}>
                           {meal.title}
                         </h3>
 
@@ -1562,15 +1572,6 @@ export default function Home() {
                 );
                   })}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void toggleMealSkipped(options[0].id)}
-                    aria-pressed={groupSkipped}
-                    disabled={isOutsidePersonalMealMutationWindow || loading || mutatingPlan || planRefreshRequired}
-                    className={`meal-skip-button ${groupSkipped ? 'is-skipped' : ''}`}
-                  >
-                    {groupSkipped ? 'Comida saltada · Deshacer' : 'Hoy me la salto'}
-                  </button>
                 </section>
                 </React.Fragment>);
               })}
