@@ -1324,20 +1324,17 @@ export default function Home() {
           </button>)}
           {editingSnack && renderSnackDialog('edit')}
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
-          <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-800 tracking-wide">Menú del día</h2>
-              {meals.some(m => m.is_free_meal) && (
-                <span className="text-[10px] font-semibold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full border border-amber-200">
-                  🎉 Día Libre
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
+          <div className="mb-4">
+            {meals.some(m => m.is_free_meal) && (
+              <span className="mb-2 inline-flex rounded-full border border-amber-200 bg-amber-100/80 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                🎉 Día Libre
+              </span>
+            )}
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => void loadAvailableSourceDays()}
                 disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
-                className="text-[11px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-purple-200/60 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-10 w-full items-center justify-center gap-1 rounded-xl border border-purple-200/60 bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-600 transition-colors hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Cargar menú de otro día o intercambiar"
               >
                 <ArrowLeftRight size={12} />
@@ -1346,15 +1343,15 @@ export default function Home() {
               <button
                 onClick={() => setShowAddMealModal(true)}
                 disabled={isHistoricalDay || mutatingPlan || loading || planRefreshRequired}
-                className="text-[11px] text-pink-600 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl font-medium transition-colors flex items-center gap-1 border border-pink-200/60 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex min-h-10 w-full items-center justify-center gap-1 rounded-xl border border-pink-200/60 bg-pink-50 px-2 py-1 text-[11px] font-medium text-pink-600 transition-colors hover:bg-pink-100 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Añadir comida libre"
               >
                 <Plus size={12} />
                 <span>Añadir libre</span>
               </button>
-            <span className="text-xs text-pink-500 bg-pink-50 px-3 py-1 rounded-full font-medium">
-              {Object.entries(groupedMeals).filter(([mealType, options]) => skippedMealTypes.has(mealType) || options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} resueltas
-            </span>
+              <span className="flex min-h-10 items-center justify-center rounded-xl bg-pink-50 px-2 py-1 text-center text-xs font-medium text-pink-500">
+                {Object.entries(groupedMeals).filter(([mealType, options]) => skippedMealTypes.has(mealType) || options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} resueltas
+              </span>
             </div>
           </div>
 
