@@ -53,6 +53,7 @@ const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'patient_friends', label: 'Amistades entre pacientes' },
   { code: 'friend_challenges', label: 'Retos entre amigos' },
   { code: 'track_calories', label: 'Control de kcal' },
+  { code: 'track_steps', label: 'Control de pasos' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;

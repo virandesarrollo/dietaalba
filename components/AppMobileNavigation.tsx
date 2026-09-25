@@ -6,7 +6,7 @@ import { deriveAppViews, type PersonalAppView } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
 const APP_DESTINATIONS = {
-  patient: { label: 'Comida', path: '/', icon: Salad },
+  patient: { label: 'Mi día', path: '/', icon: Salad },
   training: { label: 'Entrenamiento', path: '/training', icon: Dumbbell },
   health: { label: 'Salud', path: '/health', icon: HeartPulse },
   friends: { label: 'Amigos', path: '/friends', icon: Users },

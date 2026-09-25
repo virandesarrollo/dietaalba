@@ -10,7 +10,9 @@ import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { AccountMenu } from '@/components/AccountMenu';
+import { DailyStepsCard } from '@/components/DailyStepsCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
+import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
 import { isHistoricalDate, isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date';
 import { decideFocusTrapTarget } from '@/lib/gym-workouts.js';
 import { MAX_MEAL_OPTIONS, sortMealOptions, groupMealOptions, applyExclusiveSelection, reconcileMealSelection } from '@/lib/meal-options.js';
@@ -105,7 +107,7 @@ export default function Home() {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps } = featureCapabilities;
   const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
@@ -117,6 +119,14 @@ export default function Home() {
   const [waterMl, setWaterMl] = useState(0);
   const [waterGoalMl, setWaterGoalMl] = useState(2000);
   const [waterGlassMl, setWaterGlassMl] = useState(250);
+  const [dailySteps, setDailySteps] = useState(0);
+  const [dailyStepGoal, setDailyStepGoal] = useState(10000);
+  const [stepInput, setStepInput] = useState('0');
+  const [savingSteps, setSavingSteps] = useState(false);
+  const [stepMessage, setStepMessage] = useState<string | null>(null);
+  const [stepsLoadError, setStepsLoadError] = useState(false);
+  const [stepsLoading, setStepsLoading] = useState(true);
+  const stepsReadOnly = isOutsideCorrectionWindow(selectedDate) || selectedDate > madridDateString() || stepsLoadError || stepsLoading;
   const [showSnackDialog, setShowSnackDialog] = useState(false);
   const [snackDialogMealType, setSnackDialogMealType] = useState<string | null>(null);
   const [snackText, setSnackText] = useState('');
@@ -174,6 +184,9 @@ export default function Home() {
   const reviewMutationBusyRef = useRef(createMutationLock());
   const planMutationGuardRef = useRef(createLatestRequestGuard());
   const planMutationBusyRef = useRef(createMutationLock());
+  const stepMutationGuardRef = useRef(createLatestRequestGuard());
+  const stepMutationLockRef = useRef(createMutationLock());
+  const offlineFlushQueueRef = useRef(createSerialTaskQueue());
   const planMutationRevisionRef = useRef(0);
 
   function acquirePlanMutationLock() {
@@ -197,6 +210,7 @@ export default function Home() {
     const requestGuard = requestGuardRef.current;
     const sourceDaysGuard = sourceDaysGuardRef.current;
     const planMutationGuard = planMutationGuardRef.current;
+    const stepMutationGuard = stepMutationGuardRef.current;
     const initialSessionGeneration = requestGuard.currentGeneration();
     const applyAuthSession = (nextSession: Session | null) => {
       const generation = requestGuard.invalidate();
@@ -205,6 +219,8 @@ export default function Home() {
       reviewMutationBusyRef.current.reset();
       planMutationGuard.invalidate();
       resetPlanMutationLock();
+      stepMutationGuard.invalidate();
+      stepMutationLockRef.current = createMutationLock();
       setMutatingPlan(false);
       setApplyingDayChange(false);
       setSavingNewMeal(false);
@@ -218,6 +234,13 @@ export default function Home() {
       setWaterMl(0);
       setWaterGoalMl(2000);
       setWaterGlassMl(250);
+      setDailySteps(0);
+      setDailyStepGoal(10000);
+      setStepInput('0');
+      setSavingSteps(false);
+      setStepMessage(null);
+      setStepsLoadError(false);
+      setStepsLoading(true);
       setReviews({});
       setRecipes([]);
       setAvailableSourceDays([]);
@@ -252,6 +275,8 @@ export default function Home() {
       requestGuard.invalidate();
       sourceDaysGuard.invalidate();
       planMutationGuard.invalidate();
+      stepMutationGuard.invalidate();
+      stepMutationLockRef.current = createMutationLock();
       subscription.unsubscribe();
     };
   }, []);
@@ -335,6 +360,60 @@ export default function Home() {
     commit(() => setNavigationRoles(nextNavigationRoles));
     commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
     commit(() => setLoadingFeatures(false));
+
+    if (nextCapabilities.canTrackSteps) {
+      setStepsLoading(true);
+      const stepLock = stepMutationLockRef.current;
+      const startRevision = stepLock.currentRevision();
+      try {
+        const stepsResult = await supabase.rpc('get_my_daily_steps', { p_date: targetDate });
+        const canPublish = canPublishDailyStepsLoad({
+          requestCurrent: requestGuard.isCurrent(request),
+          sameLock: stepMutationLockRef.current === stepLock,
+          lockBusy: stepLock.isBusy(),
+          startRevision,
+          currentRevision: stepLock.currentRevision(),
+        });
+        if (canPublish) {
+          if (stepsResult.error) {
+            setStepsLoadError(true);
+            setStepMessage('No se pudieron cargar los pasos. Recarga para intentarlo de nuevo.');
+          } else {
+            const summary = normalizeDailyStepRow(stepsResult.data);
+            setDailySteps(summary.steps);
+            setDailyStepGoal(summary.dailyGoal);
+            setStepInput(String(summary.steps));
+            setStepsLoadError(false);
+            setStepMessage(null);
+          }
+          setStepsLoading(false);
+        }
+      } catch {
+        const canPublish = canPublishDailyStepsLoad({
+          requestCurrent: requestGuard.isCurrent(request),
+          sameLock: stepMutationLockRef.current === stepLock,
+          lockBusy: stepLock.isBusy(),
+          startRevision,
+          currentRevision: stepLock.currentRevision(),
+        });
+        if (canPublish) {
+          setStepsLoadError(true);
+          setStepMessage('No se pudieron cargar los pasos. Recarga para intentarlo de nuevo.');
+          setStepsLoading(false);
+        }
+      }
+    } else {
+      stepMutationGuardRef.current.invalidateRequests();
+      commit(() => {
+        setDailySteps(0);
+        setDailyStepGoal(10000);
+        setStepInput('0');
+        setSavingSteps(false);
+        setStepMessage(null);
+        setStepsLoadError(false);
+        setStepsLoading(false);
+      });
+    }
 
     // 1. Cargar comidas y saltos como una única instantánea de interfaz.
     const planMutationRevision = planMutationRevisionRef.current;
@@ -438,6 +517,162 @@ export default function Home() {
     commit(() => setLoading(false));
     return planSnapshotPublished && !mealsError && !skipsError;
   }, [selectedDate, session]);
+
+  const flushOfflineQueue = useCallback((userId: string, dateToRefresh: string) => {
+    const store = getOfflineDietStore();
+    const contextGuard = stepMutationGuardRef.current;
+    const contextGeneration = contextGuard.currentGeneration();
+    const run = async () => {
+      if (!contextGuard.isGenerationCurrent(contextGeneration)) return;
+      setIsOffline(!navigator.onLine);
+      if (!navigator.onLine) {
+        const pendingCount = (await store.list(userId)).length;
+        if (contextGuard.isGenerationCurrent(contextGeneration)) setPendingSyncCount(pendingCount);
+        return;
+      }
+
+      let blockedByStepMutation = false;
+      while (navigator.onLine && contextGuard.isGenerationCurrent(contextGeneration)) {
+        const operations = await store.list(userId);
+        if (!contextGuard.isGenerationCurrent(contextGeneration)) break;
+        const operation = operations[0];
+        if (!operation) break;
+
+        let stepLock: ReturnType<typeof createMutationLock> | null = null;
+        if (operation.rpc === 'save_my_daily_steps') {
+          stepLock = stepMutationLockRef.current;
+          if (!stepLock.tryAcquire()) {
+            blockedByStepMutation = true;
+            break;
+          }
+        }
+
+        try {
+          const { error } = await supabase.rpc(operation.rpc, operation.params);
+          if (error) {
+            if (contextGuard.isGenerationCurrent(contextGeneration)) {
+              setPlanError('Hay un registro pendiente que no se pudo sincronizar.');
+            }
+            break;
+          }
+          await store.remove(userId, operation.id);
+        } finally {
+          stepLock?.release();
+        }
+      }
+
+      const remaining = await store.list(userId);
+      if (contextGuard.isGenerationCurrent(contextGeneration)) {
+        setPendingSyncCount(remaining.length);
+        if (!blockedByStepMutation && remaining.length === 0) void fetchData(dateToRefresh);
+      }
+    };
+    return offlineFlushQueueRef.current.run(run);
+  }, [fetchData]);
+
+  async function saveDailySteps() {
+    const userId = session?.user?.id;
+    const targetDate = selectedDate;
+    if (!canTrackSteps || !userId) return;
+    if (isOutsideCorrectionWindow(targetDate) || targetDate > madridDateString()) {
+      setStepMessage('No puedes modificar los pasos de esta fecha.');
+      return;
+    }
+    if (stepsLoadError) {
+      setStepMessage('No se pudieron cargar los pasos. Recarga para intentarlo de nuevo.');
+      return;
+    }
+    const parsedSteps = parseDailySteps(stepInput);
+    if (parsedSteps === null) {
+      setStepMessage('Indica un número entero de pasos entre 0 y 200.000.');
+      return;
+    }
+
+    const store = getOfflineDietStore();
+    const lock = stepMutationLockRef.current;
+    if (!lock.tryAcquire()) return;
+    const stepGuard = stepMutationGuardRef.current;
+    const mutation = stepGuard.startRequest(stepGuard.currentGeneration(), userId, targetDate);
+    const previous = { steps: dailySteps, input: stepInput };
+    setSavingSteps(true);
+    setStepMessage(null);
+    setDailySteps(parsedSteps);
+    setStepInput(String(parsedSteps));
+    setStepsLoading(false);
+
+    try {
+      if (!navigator.onLine) {
+        await queueOfflineRpc('save_my_daily_steps', { p_date: targetDate, p_steps: parsedSteps });
+        if (stepMutationGuardRef.current.isCurrent(mutation)) {
+          setStepMessage('Pasos guardados sin conexión. Se sincronizarán cuando vuelvas a estar online.');
+        }
+        return;
+      }
+
+      const pendingOperations = await store.list(userId);
+      if (!stepMutationGuardRef.current.isCurrent(mutation)) return;
+      if (hasPendingDailyStepWrite(pendingOperations)) {
+        await queueOfflineRpc('save_my_daily_steps', { p_date: targetDate, p_steps: parsedSteps });
+        if (stepMutationGuardRef.current.isCurrent(mutation)) {
+          setStepMessage('Pasos pendientes de sincronización.');
+        }
+        return;
+      }
+
+      const saveResult = await supabase.rpc('save_my_daily_steps', { p_date: targetDate, p_steps: parsedSteps });
+      if (saveResult.error) {
+        const reconcileResult = await supabase.rpc('get_my_daily_steps', { p_date: targetDate });
+        if (stepMutationGuardRef.current.isCurrent(mutation)) {
+          if (reconcileResult.error) {
+            setDailySteps(previous.steps);
+            setStepInput(previous.input);
+          } else {
+            const confirmed = normalizeDailyStepRow(reconcileResult.data);
+            setDailySteps(confirmed.steps);
+            setDailyStepGoal(confirmed.dailyGoal);
+            setStepInput(String(confirmed.steps));
+          }
+          setStepMessage('No se pudieron guardar los pasos.');
+        }
+        return;
+      }
+      if (stepMutationGuardRef.current.isCurrent(mutation)) setStepMessage('Pasos guardados.');
+    } catch {
+      try {
+        const reconcileResult = await supabase.rpc('get_my_daily_steps', { p_date: targetDate });
+        if (stepMutationGuardRef.current.isCurrent(mutation)) {
+          if (reconcileResult.error) {
+            setDailySteps(previous.steps);
+            setStepInput(previous.input);
+          } else {
+            const confirmed = normalizeDailyStepRow(reconcileResult.data);
+            setDailySteps(confirmed.steps);
+            setDailyStepGoal(confirmed.dailyGoal);
+            setStepInput(String(confirmed.steps));
+          }
+          setStepMessage('No se pudieron guardar los pasos.');
+        }
+      } catch {
+        if (stepMutationGuardRef.current.isCurrent(mutation)) {
+          setDailySteps(previous.steps);
+          setStepInput(previous.input);
+          setStepMessage('No se pudieron guardar los pasos.');
+        }
+      }
+    } finally {
+      lock.release();
+      if (stepMutationGuardRef.current.isCurrent(mutation)) {
+        setSavingSteps(false);
+        setStepsLoading(false);
+      }
+      if (stepMutationGuardRef.current.isCurrent(mutation) && navigator.onLine) {
+        const pending = hasPendingDailyStepWrite(await store.list(userId));
+        if (stepMutationGuardRef.current.isCurrent(mutation) && pending) {
+          void flushOfflineQueue(userId, targetDate);
+        }
+      }
+    }
+  }
 
   async function saveDailyWater(nextMl: number) {
     if (isOutsidePersonalCorrectionWindow) return;
@@ -578,6 +813,7 @@ export default function Home() {
 
   useEffect(() => {
     if (session) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchData(selectedDate);
     }
   }, [selectedDate, session, authGeneration, fetchData]);
@@ -585,24 +821,16 @@ export default function Home() {
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) return;
-    const store = getOfflineDietStore();
-    const refresh = async () => setPendingSyncCount((await store.list(userId)).length);
-    const flush = async () => {
-      setIsOffline(!navigator.onLine);
-      if (!navigator.onLine) return refresh();
-      for (const operation of await store.list(userId)) {
-        const { error } = await supabase.rpc(operation.rpc, operation.params);
-        if (error) { setPlanError('Hay un registro pendiente que no se pudo sincronizar.'); break; }
-        await store.remove(userId, operation.id);
-      }
-      await refresh();
-      void fetchData(selectedDate);
+    const handleOnline = () => { void flushOfflineQueue(userId, selectedDate); };
+    const handleOffline = () => setIsOffline(true);
+    void flushOfflineQueue(userId, selectedDate);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-    void flush();
-    window.addEventListener('online', flush);
-    window.addEventListener('offline', () => setIsOffline(true));
-    return () => { window.removeEventListener('online', flush); };
-  }, [session, selectedDate, fetchData]);
+  }, [session, selectedDate, flushOfflineQueue]);
 
   // Agrupación de recetas por tipo para el desplegable
   const groupedRecipes = useMemo(() => {
@@ -825,6 +1053,8 @@ export default function Home() {
     sourceDaysGuardRef.current.invalidateRequests();
     planMutationGuardRef.current.invalidate();
     resetPlanMutationLock();
+    stepMutationGuardRef.current.invalidate();
+    stepMutationLockRef.current = createMutationLock();
     setMutatingPlan(false);
     setApplyingDayChange(false);
     setSavingNewMeal(false);
@@ -833,6 +1063,13 @@ export default function Home() {
     setPlanRefreshRequired(false);
     setLoading(true);
     setMeals([]);
+    setDailySteps(0);
+    setDailyStepGoal(10000);
+    setStepInput('0');
+    setSavingSteps(false);
+    setStepMessage(null);
+    setStepsLoadError(false);
+    setStepsLoading(true);
     setSkippedMealTypes(new Set());
     setAvailableSourceDays([]);
     setSelectedSourceDate('');
@@ -1277,6 +1514,16 @@ export default function Home() {
                 <ChevronRight size={20} />
               </button>
             </div>
+            {canTrackSteps && <DailyStepsCard
+              steps={dailySteps}
+              dailyGoal={dailyStepGoal}
+              input={stepInput}
+              readOnly={stepsReadOnly}
+              saving={savingSteps}
+              message={stepMessage}
+              onInputChange={setStepInput}
+              onSave={saveDailySteps}
+            />}
             {canTrackCalories && (
               <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>

@@ -9,7 +9,7 @@ export type FeatureCode =
   | 'track_weight'
   | 'track_blood_pressure'
   | 'track_water'
-  | 'track_snacks' | 'track_night_binges' | 'patient_friends' | 'friend_challenges' | 'track_calories';
+  | 'track_snacks' | 'track_night_binges' | 'patient_friends' | 'friend_challenges' | 'track_calories' | 'track_steps';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
@@ -28,6 +28,7 @@ export type FeatureCapabilities = {
   canUsePatientFriends: boolean;
   canUseFriendChallenges: boolean;
   canTrackCalories: boolean;
+  canTrackSteps: boolean;
 };
 
 export function deriveFeatureCapabilities(
@@ -62,6 +63,7 @@ export type MutationLock = {
   release(): void;
   reset(): void;
   isBusy(): boolean;
+  currentRevision(): number;
 };
 
 export function createMutationLock(): MutationLock;

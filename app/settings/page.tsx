@@ -6,7 +6,9 @@ import { ArrowLeft, Check, LogOut, Moon, Palette, Sparkles, Sun } from 'lucide-r
 import { useTheme } from '@/components/ThemeProvider';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
+import { normalizeDailyStepRow, parseStepGoal } from '@/lib/daily-steps.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
+import { madridDateString } from '@/lib/historical-date.js';
 import { validateColorPalette, type ThemeColorKey } from '@/lib/theme-preferences.js';
 import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
@@ -31,6 +33,7 @@ export default function SettingsPage() {
   const [canChangeTheme, setCanChangeTheme] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
   const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
+  const [canTrackSteps, setCanTrackSteps] = useState(false);
   const [canTrackWater, setCanTrackWater] = useState(false);
   const [canTrackNightBinges, setCanTrackNightBinges] = useState(false);
   const [nightBingeStartTime, setNightBingeStartTime] = useState('22:00');
@@ -39,6 +42,11 @@ export default function SettingsPage() {
   const [gymWeightStep, setGymWeightStep] = useState('1');
   const [savingGymStep, setSavingGymStep] = useState(false);
   const [gymStepMessage, setGymStepMessage] = useState<string | null>(null);
+  const [stepGoal, setStepGoal] = useState('10000');
+  const [savingStepGoal, setSavingStepGoal] = useState(false);
+  const [stepGoalMessage, setStepGoalMessage] = useState<string | null>(null);
+  const [stepGoalLoadError, setStepGoalLoadError] = useState(false);
+  const [loadingStepGoal, setLoadingStepGoal] = useState(true);
   const [waterGoalMl, setWaterGoalMl] = useState('2000');
   const [waterGlassMl, setWaterGlassMl] = useState('250');
   const [waterMessage, setWaterMessage] = useState<string | null>(null);
@@ -53,13 +61,14 @@ export default function SettingsPage() {
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
   const appNavigationViews = deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), { canAccessSettings, canTrackGymWorkouts, canManageGymWorkouts }));
+  const hasFunctionalSettings = canTrackGymWorkouts || canTrackSteps || canTrackWater || canTrackNightBinges;
 
   useEffect(() => {
     let active = true;
     let receivedAuthEvent = false;
     const clearIdentityState = () => {
-      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false); setCanTrackWater(false);
-      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
+      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false); setCanTrackWater(false); setCanTrackSteps(false);
+      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setStepGoal('10000'); setStepGoalMessage(null); setSavingStepGoal(false); setStepGoalLoadError(false); setLoadingStepGoal(true); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
     };
     async function checkAccess(generation: number, userId: string, requestGeneration: number) {
       const isCurrent = () => active && generation === authGenerationRef.current && userId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current;
@@ -84,11 +93,36 @@ export default function SettingsPage() {
       setCanManageGymWorkouts(capabilities.canManageGymWorkouts);
       setCanTrackWater(capabilities.canTrackWater);
       setCanTrackNightBinges(capabilities.canTrackNightBinges);
+      setCanTrackSteps(capabilities.canTrackSteps);
       const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
       setNavigationRoles(membershipResult.error ? [] : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []));
       if (capabilities.canTrackGymWorkouts) {
         const { data: step } = await supabase.rpc('get_my_gym_weight_step');
         if (isCurrent() && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
+      }
+      if (capabilities.canTrackSteps) {
+        if (isCurrent()) { setLoadingStepGoal(true); setStepGoalLoadError(false); setStepGoalMessage(null); }
+        try {
+          const { data: dailySteps, error: dailyStepsError } = await supabase.rpc('get_my_daily_steps', { p_date: madridDateString() });
+          if (!isCurrent()) return;
+          if (dailyStepsError) {
+            setStepGoalLoadError(true);
+            setStepGoalMessage('No se pudo cargar el objetivo de pasos. Recarga para intentarlo de nuevo.');
+            setLoadingStepGoal(false);
+          } else {
+            setStepGoalLoadError(false);
+            setStepGoal(String(normalizeDailyStepRow(dailySteps).dailyGoal));
+            setLoadingStepGoal(false);
+          }
+        } catch {
+          if (isCurrent()) {
+            setStepGoalLoadError(true);
+            setStepGoalMessage('No se pudo cargar el objetivo de pasos. Recarga para intentarlo de nuevo.');
+            setLoadingStepGoal(false);
+          }
+        }
+      } else {
+        if (isCurrent()) setLoadingStepGoal(false);
       }
       if (capabilities.canTrackWater) {
         const { data: water } = await supabase.rpc('get_my_water_preferences');
@@ -128,6 +162,27 @@ export default function SettingsPage() {
       if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setGymStepMessage('No se pudo guardar el incremento.');
     } finally {
       if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setSavingGymStep(false);
+    }
+  }
+
+  async function saveStepGoal() {
+    const parsedGoal = parseStepGoal(stepGoal);
+    if (parsedGoal === null) {
+      setStepGoalMessage('Indica un objetivo entre 1.000 y 100.000 pasos.');
+      return;
+    }
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    setSavingStepGoal(true);
+    try {
+      const { error: stepGoalError } = await supabase.rpc('save_my_step_goal', { p_daily_goal: parsedGoal });
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) {
+        setStepGoalMessage(stepGoalError ? 'No se pudo guardar el objetivo de pasos.' : 'Objetivo de pasos guardado.');
+      }
+    } catch {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setStepGoalMessage('No se pudo guardar el objetivo de pasos.');
+    } finally {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setSavingStepGoal(false);
     }
   }
 
@@ -215,6 +270,18 @@ export default function SettingsPage() {
       <div className="px-5 pt-7">
 
         <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
+        {canTrackSteps && (
+          <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
+            <h2 className="font-bold text-slate-800">Objetivo diario de pasos</h2>
+            <p className="theme-muted mt-1 text-xs">Define cuántos pasos quieres completar cada día.</p>
+            <div className="mt-4 flex items-center gap-3">
+              <input type="number" min="1000" max="100000" step="100" value={stepGoal} onChange={(event) => setStepGoal(event.target.value)} className="min-h-12 w-full rounded-2xl border px-4" aria-label="Objetivo diario de pasos" disabled={loadingStepGoal || savingStepGoal || stepGoalLoadError} />
+              <button type="button" disabled={loadingStepGoal || savingStepGoal || stepGoalLoadError} onClick={() => void saveStepGoal()} className="min-h-12 rounded-2xl bg-rose-500 px-5 font-semibold text-white disabled:opacity-50">Guardar objetivo</button>
+            </div>
+            {loadingStepGoal && <p className="theme-muted mt-3 text-xs" role="status">Cargando objetivo…</p>}
+            {stepGoalMessage && <p className="theme-muted mt-3 text-xs" role="status">{stepGoalMessage}</p>}
+          </section>
+        )}
         {canTrackWater && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Agua diaria</h2><p className="theme-muted mt-1 text-xs">Configura el objetivo y el tamaño de cada vaso.</p><div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Objetivo (ml)<input type="number" min="250" value={waterGoalMl} onChange={(event) => setWaterGoalMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><label className="text-xs font-semibold">Vaso (ml)<input type="number" min="50" value={waterGlassMl} onChange={(event) => setWaterGlassMl(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label></div><button type="button" onClick={() => void saveWaterPreferences()} className="mt-4 min-h-12 rounded-2xl bg-cyan-500 px-5 font-semibold text-white">Guardar agua</button>{waterMessage && <p className="mt-2 text-xs" role="status">{waterMessage}</p>}</section>}
         {canTrackNightBinges && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Control nocturno</h2><p className="theme-muted mt-1 text-xs">Define desde qué hora se activa la alarma.</p><label className="mt-4 block text-sm">Alarma desde<input type="time" value={nightBingeStartTime} onChange={(event) => setNightBingeStartTime(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border px-3" /></label><button type="button" onClick={() => void saveNightBingeStartTime()} className="mt-4 min-h-12 rounded-2xl bg-indigo-600 px-5 font-semibold text-white">Guardar hora</button>{nightBingeMessage && <p className="mt-2 text-xs" role="status">{nightBingeMessage}</p>}</section>}
 
@@ -231,9 +298,11 @@ export default function SettingsPage() {
         )}
 
         {!canChangeTheme ? (
-          <section className="theme-surface rounded-3xl p-7 shadow-sm">
-            {!canTrackGymWorkouts && <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>}
-          </section>
+          !hasFunctionalSettings ? (
+            <section className="theme-surface rounded-3xl p-7 shadow-sm">
+              <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>
+            </section>
+          ) : null
         ) : (
           <div className="space-y-5">
           <section className="theme-surface rounded-3xl p-5 shadow-sm">
