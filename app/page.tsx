@@ -471,6 +471,25 @@ export default function Home() {
     </div>;
   }
 
+  function handleSnackCardClick(snack: SnackLog) {
+    if (isOutsidePersonalCorrectionWindow) return;
+    if (editingSnack?.id === snack.id) {
+      setEditingSnack(null);
+      setSnackText('');
+      setSnackKcal('');
+      return;
+    }
+    setEditingSnack(snack);
+    setSnackText(snack.text);
+    setSnackKcal(snack.kcal == null ? '' : String(snack.kcal));
+    setSnackTime(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date(snack.recorded_at)));
+  }
+
   async function saveSnack() {
     const kcal = snackKcalForSave();
     if (kcal === undefined) return;
@@ -1123,7 +1142,7 @@ export default function Home() {
             <div className="mt-3 flex gap-2"><button type="button" disabled={isOutsidePersonalCorrectionWindow || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
           {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
-          {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => { if (!isOutsidePersonalCorrectionWindow) { setEditingSnack(snack); setSnackText(snack.text); setSnackKcal(snack.kcal == null ? '' : String(snack.kcal)); setSnackTime(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(snack.recorded_at))); } }} className="snack-card">
+          {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => handleSnackCardClick(snack)} className="snack-card">
             <span className="snack-card-icon" aria-hidden="true">!</span>
             <span className="snack-card-content">
               <span className="snack-card-description">{snack.text}</span>
