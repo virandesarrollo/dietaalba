@@ -1117,6 +1117,15 @@ export default function Home() {
                 <ChevronRight size={20} />
               </button>
             </div>
+            {canTrackCalories && (
+              <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
+                <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
+                <span className="kcal-summary-copy">
+                  <strong className="kcal-summary-value">{totalDailyCalories} kcal consumidas</strong>
+                  <span className="kcal-summary-label">Comidas + picoteos de hoy</span>
+                </span>
+              </div>
+            )}
           </>
         ) : (
           <div className="mt-2 mb-2">
@@ -1186,7 +1195,6 @@ export default function Home() {
             <span className="text-xs text-pink-500 bg-pink-50 px-3 py-1 rounded-full font-medium">
               {Object.values(groupedMeals).filter(options => options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} hecho
             </span>
-            {canTrackCalories && <span className="text-xs text-amber-700 bg-amber-50 px-3 py-1 rounded-full font-semibold">⚡ {totalDailyCalories} kcal</span>}
             </div>
           </div>
 
