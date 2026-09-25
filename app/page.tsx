@@ -111,7 +111,9 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
   const isOutsidePersonalCorrectionWindow = isOutsideCorrectionWindow(selectedDate);
+  const isOutsidePersonalMealMutationWindow = isOutsidePersonalCorrectionWindow || selectedDate > madridDateString();
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [skippedMealTypes, setSkippedMealTypes] = useState<Set<string>>(() => new Set());
   const [waterMl, setWaterMl] = useState(0);
   const [waterGoalMl, setWaterGoalMl] = useState(2000);
   const [waterGlassMl, setWaterGlassMl] = useState(250);
@@ -194,6 +196,7 @@ export default function Home() {
       setSession(nextSession);
       setAuthGeneration(generation);
       setMeals([]);
+      setSkippedMealTypes(new Set());
       setWaterMl(0);
       setWaterGoalMl(2000);
       setWaterGlassMl(250);
@@ -279,7 +282,7 @@ export default function Home() {
     }
   }
 
-  const fetchData = useCallback(async (dateToFetch?: string) => {
+  const fetchData = useCallback(async (dateToFetch?: string, allowPlanSnapshotWhileMutating = false) => {
     const targetDate = dateToFetch || selectedDate;
     const userId = session?.user?.id;
     if (!userId) return;
@@ -315,22 +318,42 @@ export default function Home() {
     commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
     commit(() => setLoadingFeatures(false));
 
-    // 1. Cargar comidas de la fecha seleccionada
-    const { data: mealsData, error: mealsError } = await supabase
-      .from('daily_plan')
-      .select('id, date, meal_type, meal_order, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at, kcal')
-      .eq('date', targetDate)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+    // 1. Cargar comidas y saltos como una única instantánea de interfaz.
+    const planMutationRevision = planMutationBusyRef.current.currentRevision();
+    const [mealsResult, skipsResult] = await Promise.all([
+      supabase
+        .from('daily_plan')
+        .select('id, date, meal_type, meal_order, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at, kcal')
+        .eq('date', targetDate)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true }),
+      supabase.rpc('get_my_meal_skips', { p_date: targetDate }),
+    ]);
     if (!requestGuard.isCurrent(request)) return;
-
-    if (mealsError) {
-      console.error('Error cargando comidas:', mealsError);
-      commit(() => setMeals([]));
-    } else if (mealsData) {
-      commit(() => setMeals(sortMealOptions(mealsData as Meal[])));
-    } else {
-      commit(() => setMeals([]));
+    const { data: mealsData, error: mealsError } = mealsResult;
+    const { data: skipsData, error: skipsError } = skipsResult;
+    const canPublishPlanSnapshot = allowPlanSnapshotWhileMutating || (
+      !planMutationBusyRef.current.isBusy()
+      && planMutationBusyRef.current.currentRevision() === planMutationRevision
+    );
+    let planSnapshotPublished = false;
+    if (canPublishPlanSnapshot && (mealsError || skipsError)) {
+      if (mealsError) console.error('Error cargando comidas:', mealsError);
+      if (skipsError) console.error('Error cargando comidas saltadas:', skipsError);
+      commit(() => {
+        setPlanRefreshRequired(true);
+        setPlanError('No se pudo cargar el estado completo del menú. Recarga la vista.');
+      });
+    }
+    if (canPublishPlanSnapshot && !mealsError && !skipsError) {
+      const mealTypes = Array.isArray(skipsData)
+        ? skipsData.flatMap((row) => typeof row?.meal_type === 'string' ? [row.meal_type] : [])
+        : [];
+      commit(() => {
+        setMeals(Array.isArray(mealsData) ? sortMealOptions(mealsData as Meal[]) : []);
+        setSkippedMealTypes(new Set(mealTypes));
+      });
+      planSnapshotPublished = true;
     }
 
     if (nextCapabilities.canTrackWater) {
@@ -395,7 +418,7 @@ export default function Home() {
 
     commit(() => setRecipes(allRecipes));
     commit(() => setLoading(false));
-    return !mealsError;
+    return planSnapshotPublished && !mealsError && !skipsError;
   }, [selectedDate, session]);
 
   async function saveDailyWater(nextMl: number) {
@@ -593,7 +616,11 @@ export default function Home() {
 
   async function selectMealOption(mealId: string, currentStatus: boolean) {
     const userId = session?.user?.id;
-    if (!userId || loading || planRefreshRequired || isOutsidePersonalCorrectionWindow) return;
+    if (!userId || loading || planRefreshRequired) return;
+    if (isOutsidePersonalMealMutationWindow) {
+      setPlanError('Solo puedes cambiar el estado de las comidas de hoy o de los dos días anteriores.');
+      return;
+    }
     const targetMeal = meals.find(meal => meal.id === mealId);
     if (!targetMeal) return;
     const mealType = targetMeal.meal_type;
@@ -602,9 +629,15 @@ export default function Home() {
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     const previousMeals = meals;
+    const previousSkippedMealTypes = new Set(skippedMealTypes);
     setMutatingPlan(true);
     setPlanError(null);
     setMeals(prev => applyExclusiveSelection(prev, mealId));
+    setSkippedMealTypes(prev => {
+      const next = new Set(prev);
+      next.delete(mealType);
+      return next;
+    });
     let selectionSaved = false;
     let response: unknown;
     try {
@@ -637,6 +670,7 @@ export default function Home() {
         if (!selectionSaved) {
           const selectionConfirmed = groupData.some(meal => meal.id === mealId && meal.is_completed === !currentStatus)
             && groupData.every(meal => meal.id === mealId || !meal.is_completed);
+          if (!selectionConfirmed) setSkippedMealTypes(previousSkippedMealTypes);
           setPlanError(selectionConfirmed
             ? 'Selección guardada. La vista se ha actualizado.'
             : 'No se guardó la selección solicitada. La vista muestra el estado actual.');
@@ -648,9 +682,86 @@ export default function Home() {
           setPlanError('Selección guardada, vista no actualizada. Recarga la vista.');
         } else {
           setMeals(previousMeals);
+          setSkippedMealTypes(previousSkippedMealTypes);
           setPlanRefreshRequired(true);
           setPlanError('No se pudo confirmar la selección. Recarga la vista antes de continuar.');
         }
+      }
+    } finally {
+      if (guard.isGenerationCurrent(mutation.generation)) {
+        lock.release();
+        setMutatingPlan(false);
+      }
+    }
+  }
+
+  async function toggleMealSkipped(mealId: string) {
+    const userId = session?.user?.id;
+    if (!userId || loading || planRefreshRequired) return;
+    if (isOutsidePersonalMealMutationWindow) {
+      setPlanError('Solo puedes cambiar el estado de las comidas de hoy o de los dos días anteriores.');
+      return;
+    }
+    const targetMeal = meals.find(meal => meal.id === mealId);
+    if (!targetMeal) return;
+    const mealType = targetMeal.meal_type;
+    const nextSkipped = !skippedMealTypes.has(mealType);
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = planMutationGuardRef.current;
+    const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
+    setMutatingPlan(true);
+    setPlanError(null);
+    setSkippedMealTypes(prev => {
+      const next = new Set(prev);
+      if (nextSkipped) next.add(mealType);
+      else next.delete(mealType);
+      return next;
+    });
+    if (nextSkipped) {
+      setMeals(prev => prev.map(meal => meal.meal_type === mealType ? { ...meal, is_completed: false } : meal));
+    }
+    try {
+      const { error } = await supabase.rpc('set_my_meal_skipped', {
+        p_meal_id: mealId,
+        p_skipped: nextSkipped,
+      });
+      if (error) throw error;
+    } catch {
+      try {
+        const [skipsResult, groupResult] = await Promise.all([
+          supabase.rpc('get_my_meal_skips', { p_date: selectedDate }),
+          supabase
+            .from('daily_plan')
+            .select('id, date, meal_type, meal_order, title, ingredients, recipe_url, is_free_meal, free_meal_label, is_completed, option_order, created_at, kcal')
+            .eq('user_id', userId)
+            .eq('date', selectedDate)
+            .eq('meal_type', mealType),
+        ]);
+        if (skipsResult.error || groupResult.error || !Array.isArray(groupResult.data)) {
+          throw skipsResult.error ?? groupResult.error ?? new Error('No se pudo leer el estado del grupo');
+        }
+        if (!guard.isCurrent(mutation)) return;
+        const groupData = groupResult.data as Meal[];
+        const serverSkippedMealTypes = new Set<string>(
+          Array.isArray(skipsResult.data)
+            ? skipsResult.data.flatMap((row) => typeof row?.meal_type === 'string' ? [row.meal_type] : [])
+            : [],
+        );
+        const serverSnapshotCoherent = !serverSkippedMealTypes.has(mealType) || groupData.every(meal => !meal.is_completed);
+        if (!serverSnapshotCoherent) throw new Error('Estado de comida incoherente');
+        setMeals(prev => sortMealOptions([...prev.filter(meal => meal.meal_type !== mealType), ...groupData as Meal[]]));
+        setSkippedMealTypes(serverSkippedMealTypes);
+        const mutationConfirmed = nextSkipped
+          ? serverSkippedMealTypes.has(mealType) && groupData.every(meal => !meal.is_completed)
+          : !serverSkippedMealTypes.has(mealType);
+        setPlanError(mutationConfirmed
+          ? 'Cambio guardado. La vista se ha actualizado.'
+          : 'No se guardó el cambio solicitado. La vista muestra el estado actual.');
+      } catch {
+        if (!guard.isCurrent(mutation)) return;
+        setPlanRefreshRequired(true);
+        setPlanError('No se pudo confirmar el cambio. Recarga la vista antes de continuar.');
       }
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
@@ -669,7 +780,7 @@ export default function Home() {
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setMutatingPlan(true);
     try {
-      const refreshed = await fetchData(selectedDate);
+      const refreshed = await fetchData(selectedDate, true);
       if (!guard.isCurrent(mutation)) return;
       if (refreshed) {
         setPlanRefreshRequired(false);
@@ -704,6 +815,7 @@ export default function Home() {
     setPlanRefreshRequired(false);
     setLoading(true);
     setMeals([]);
+    setSkippedMealTypes(new Set());
     setAvailableSourceDays([]);
     setSelectedSourceDate('');
     setShowLoadDayModal(false);
@@ -898,7 +1010,7 @@ export default function Home() {
         if (guard.isCurrent(mutation)) setCopiedKey(null);
       }, 2500);
       try {
-        if (!(await fetchData(selectedDate))) throw new Error('No se pudo recargar el plan');
+        if (!(await fetchData(selectedDate, true))) throw new Error('No se pudo recargar el plan');
         if (!guard.isCurrent(mutation)) return;
         setPlanRefreshRequired(false);
       } catch {
@@ -1223,7 +1335,7 @@ export default function Home() {
                 <span>Añadir libre</span>
               </button>
             <span className="text-xs text-pink-500 bg-pink-50 px-3 py-1 rounded-full font-medium">
-              {Object.values(groupedMeals).filter(options => options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} hecho
+              {Object.entries(groupedMeals).filter(([mealType, options]) => skippedMealTypes.has(mealType) || options.some(meal => meal.is_completed)).length} de {Object.keys(groupedMeals).length} resueltas
             </span>
             </div>
           </div>
@@ -1258,6 +1370,7 @@ export default function Home() {
             <div className="space-y-3.5">
               {Object.entries(groupedMeals).map(([mealType, options]) => {
                 const groupCompleted = options.some(option => option.is_completed);
+                const groupSkipped = skippedMealTypes.has(mealType);
 
                 return (<React.Fragment key={mealType}>
                 {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">⚠ Voy a picar</button></section>}
@@ -1268,6 +1381,11 @@ export default function Home() {
                     {groupCompleted && (
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                         Comida realizada
+                      </span>
+                    )}
+                    {groupSkipped && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                        Comida saltada
                       </span>
                     )}
                   </div>
@@ -1414,7 +1532,7 @@ export default function Home() {
                           const nextMeal = options[nextIndex];
                           if (!nextMeal.is_completed) void selectMealOption(nextMeal.id, false);
                         }}
-                        disabled={isOutsidePersonalCorrectionWindow || loading}
+                        disabled={isOutsidePersonalMealMutationWindow || loading}
                         aria-disabled={mutatingPlan || planRefreshRequired}
                         className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
                           meal.is_completed
@@ -1429,6 +1547,15 @@ export default function Home() {
                 );
                   })}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => void toggleMealSkipped(options[0].id)}
+                    aria-pressed={groupSkipped}
+                    disabled={isOutsidePersonalMealMutationWindow || loading || mutatingPlan || planRefreshRequired}
+                    className={`meal-skip-button ${groupSkipped ? 'is-skipped' : ''}`}
+                  >
+                    {groupSkipped ? 'Comida saltada · Deshacer' : 'Hoy me la salto'}
+                  </button>
                 </section>
                 </React.Fragment>);
               })}

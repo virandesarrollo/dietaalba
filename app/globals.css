@@ -503,3 +503,43 @@ main.theme-page > form.fixed {
   color: var(--app-muted);
   font-size: 0.75rem;
 }
+
+.meal-skip-button {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-surface-soft);
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.meal-skip-button:not(:disabled):hover {
+  border-color: #94a3b8;
+  color: var(--app-text);
+}
+
+.meal-skip-button.is-skipped {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+[data-theme='dark'] .meal-skip-button {
+  border-color: #475569;
+  background: #242a35;
+  color: #cbd5e1;
+}
+
+[data-theme='dark'] .meal-skip-button.is-skipped {
+  border-color: #3b82f6;
+  background: #172554;
+  color: #bfdbfe;
+}
+
+.meal-skip-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
