@@ -439,7 +439,36 @@ export default function Home() {
 
   function renderPersonalCravings() {
     if (personalCravings.length === 0) return null;
-    return <div className="mt-3"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Antojos habituales</p><div className="flex gap-2 overflow-x-auto pb-1">{personalCravings.map((craving) => <button key={craving.id} type="button" onClick={() => selectPersonalCraving(craving)} className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs font-semibold text-amber-900"><span>{craving.text}</span>{canTrackCalories && craving.kcal != null && <span className="ml-1 text-amber-700">· {craving.kcal} kcal</span>}</button>)}</div></div>;
+    return <div className="snack-dialog-cravings"><p className="snack-dialog-section-title">Antojos habituales</p><div className="snack-dialog-chip-list">{personalCravings.map((craving) => <button key={craving.id} type="button" onClick={() => selectPersonalCraving(craving)} className={`snack-dialog-chip ${snackText.trim().toLocaleLowerCase('es-ES') === craving.text.trim().toLocaleLowerCase('es-ES') ? 'is-selected' : ''}`}><span>{craving.text}</span>{canTrackCalories && craving.kcal != null && <span> · {craving.kcal} kcal</span>}</button>)}</div></div>;
+  }
+
+  function renderSnackDialog(mode: 'create' | 'edit') {
+    const isEditing = mode === 'edit';
+    return <div className="snack-dialog-card mb-4" role="alertdialog" aria-label={isEditing ? 'Editar picoteo' : 'Registrar picoteo'}>
+      <div className="snack-dialog-warning">
+        <span className="snack-dialog-warning-icon" aria-hidden="true">!</span>
+        <div>
+          <h2 className="snack-dialog-warning-title">{isEditing ? 'Editar picoteo' : 'Te estás cargando tu progreso.'}</h2>
+          <p className="snack-dialog-warning-copy">{isEditing ? 'Corrige el registro sin perder de vista tu objetivo.' : 'No es hambre: es una decisión que aleja tus objetivos. Si lo haces, regístralo.'}</p>
+        </div>
+      </div>
+      {renderPersonalCravings()}
+      <div className="snack-dialog-fields">
+        <label className="snack-dialog-field"><span>Hora</span><input aria-label="Hora del picoteo" type="time" value={snackTime} onChange={(event) => setSnackTime(event.target.value)} /></label>
+        {canTrackCalories && <label className="snack-dialog-field"><span>Kcal aproximadas</span><input aria-label="Kcal del picoteo" type="number" min="0" max="10000" step="1" value={snackKcal} onChange={(event) => setSnackKcal(event.target.value)} placeholder="0" /></label>}
+      </div>
+      <label className="snack-dialog-field snack-dialog-description"><span>¿Qué vas a tomar?</span><textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} placeholder="Describe el picoteo" /></label>
+      <div className={`snack-dialog-actions ${isEditing ? 'is-editing' : ''}`}>
+        {isEditing ? <>
+          <button type="button" onClick={() => { setEditingSnack(null); setSnackKcal(''); }} className="snack-dialog-secondary">Cancelar</button>
+          <button type="button" onClick={() => void deleteSnack()} className="snack-dialog-delete">Borrar</button>
+          <button type="button" onClick={() => void updateSnack()} disabled={!snackText.trim()} className="snack-dialog-primary">Guardar</button>
+        </> : <>
+          <button type="button" onClick={() => { setShowSnackDialog(false); setSnackDialogMealType(null); setSnackKcal(''); }} className="snack-dialog-secondary">No picar</button>
+          <button type="button" onClick={() => void saveSnack()} disabled={!snackText.trim()} className="snack-dialog-primary">Registrar picoteo</button>
+        </>}
+      </div>
+    </div>;
   }
 
   async function saveSnack() {
@@ -1095,7 +1124,7 @@ export default function Home() {
           </section>}
           {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" /><div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
           {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" onClick={() => { if (!isOutsidePersonalCorrectionWindow) { setEditingSnack(snack); setSnackText(snack.text); setSnackKcal(snack.kcal == null ? '' : String(snack.kcal)); setSnackTime(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(snack.recorded_at))); } }} className="mb-3 block w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-left text-xs text-red-800">⚠ Picoteo {new Date(snack.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {snack.text}{canTrackCalories && snack.kcal != null && <span className="ml-2 font-semibold">⚡ {snack.kcal} kcal</span>}{!isOutsidePersonalCorrectionWindow && <span className="ml-2 font-bold">Editar</span>}</button>)}
-          {editingSnack && <div className="mb-4 rounded-3xl border-2 border-red-600 bg-white p-5 shadow-lg" role="alertdialog" aria-label="Editar picoteo"><h2 className="text-lg font-bold text-red-800">Editar picoteo</h2>{renderPersonalCravings()}<input aria-label="Hora del picoteo" type="time" value={snackTime} onChange={(event) => setSnackTime(event.target.value)} className="mt-3 rounded-xl border p-2" />{canTrackCalories && <input aria-label="Kcal del picoteo" type="number" min="0" max="10000" step="1" value={snackKcal} onChange={(event) => setSnackKcal(event.target.value)} placeholder="Kcal aproximadas" className="ml-2 mt-3 w-40 rounded-xl border p-2" />}<textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} className="mt-4 min-h-24 w-full rounded-xl border p-3" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => { setEditingSnack(null); setSnackKcal(''); }} className="min-h-11 flex-1 rounded-xl bg-slate-100 font-semibold">Cancelar</button><button type="button" onClick={() => void deleteSnack()} className="min-h-11 flex-1 rounded-xl bg-red-100 font-semibold text-red-800">Borrar</button><button type="button" onClick={() => void updateSnack()} disabled={!snackText.trim()} className="min-h-11 flex-1 rounded-xl bg-red-800 font-semibold text-white disabled:opacity-40">Guardar</button></div></div>}
+          {editingSnack && renderSnackDialog('edit')}
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
           <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -1165,7 +1194,7 @@ export default function Home() {
 
                 return (<React.Fragment key={mealType}>
                 {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">⚠ Voy a picar</button></section>}
-                {showSnackDialog && snackDialogMealType === mealType && <div className="mb-4 rounded-3xl border-2 border-red-600 bg-white p-5 shadow-lg" role="alertdialog" aria-label="Registrar picoteo"><h2 className="text-lg font-bold text-red-800">Te estás cargando tu progreso.</h2><p className="mt-2 text-sm font-semibold text-red-700">No es hambre: es una decisión que aleja tus objetivos. Si lo haces, regístralo.</p>{renderPersonalCravings()}<input aria-label="Hora del picoteo" type="time" value={snackTime} onChange={(event) => setSnackTime(event.target.value)} className="mt-3 rounded-xl border p-2" />{canTrackCalories && <input aria-label="Kcal del picoteo" type="number" min="0" max="10000" step="1" value={snackKcal} onChange={(event) => setSnackKcal(event.target.value)} placeholder="Kcal aproximadas" className="ml-2 mt-3 w-40 rounded-xl border p-2" />}<textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} className="mt-4 min-h-24 w-full rounded-xl border p-3" placeholder="Qué vas a tomar" /><div className="mt-3 flex gap-2"><button type="button" onClick={() => { setShowSnackDialog(false); setSnackDialogMealType(null); setSnackKcal(''); }} className="min-h-11 flex-1 rounded-xl bg-slate-100 font-semibold">No picar</button><button type="button" onClick={() => void saveSnack()} disabled={!snackText.trim()} className="min-h-11 flex-1 rounded-xl bg-red-800 font-semibold text-white disabled:opacity-40">Registrar picoteo</button></div></div>}
+                {showSnackDialog && snackDialogMealType === mealType && renderSnackDialog('create')}
                 <section key={mealType} aria-label={mealType} className="space-y-2">
                   <div className="flex items-center gap-2">
                     <h3 className="text-[10px] font-semibold uppercase tracking-wider text-purple-600">{mealType}</h3>

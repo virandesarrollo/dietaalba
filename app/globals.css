@@ -103,3 +103,229 @@ main.theme-page > section.fixed,
 main.theme-page > form.fixed {
   z-index: 50;
 }
+
+.snack-dialog-card {
+  border: 1px solid var(--app-border);
+  border-top: 4px solid #dc2626;
+  border-radius: 1.75rem;
+  padding: 1.25rem;
+  color: var(--app-text);
+  box-shadow: 0 18px 45px rgb(15 23 42 / 0.12);
+}
+
+[data-theme='alba'] .snack-dialog-card {
+  border-color: #fecdd3;
+  border-top-color: #dc2626;
+  background: #fffdfb;
+  box-shadow: 0 18px 45px rgb(190 24 93 / 0.1);
+}
+
+[data-theme='dark'] .snack-dialog-card {
+  border-color: #3f4655;
+  border-top-color: #ef4444;
+  background: #1b1f27;
+  box-shadow: 0 22px 55px rgb(0 0 0 / 0.35);
+}
+
+.snack-dialog-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, #ef4444 30%, var(--app-border));
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, #ef4444 9%, var(--app-surface));
+  padding: 1rem;
+}
+
+[data-theme='dark'] .snack-dialog-warning {
+  border-color: #5f2c36;
+  background: #291c22;
+}
+
+.snack-dialog-warning-icon {
+  display: grid;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 900;
+}
+
+.snack-dialog-warning-title {
+  color: #b91c1c;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+[data-theme='dark'] .snack-dialog-warning-title {
+  color: #fca5a5;
+}
+
+.snack-dialog-warning-copy {
+  margin-top: 0.3rem;
+  color: var(--app-text);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.snack-dialog-cravings {
+  margin-top: 1rem;
+}
+
+.snack-dialog-section-title,
+.snack-dialog-field > span {
+  color: var(--app-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.snack-dialog-chip-list {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.45rem 0.1rem 0.4rem;
+  scrollbar-width: thin;
+}
+
+.snack-dialog-chip {
+  flex: none;
+  min-height: 2.75rem;
+  border: 1px solid color-mix(in srgb, #f59e0b 42%, var(--app-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 10%, var(--app-surface-soft));
+  color: var(--app-text);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.snack-dialog-chip:hover,
+.snack-dialog-chip.is-selected {
+  border-color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 18%, var(--app-surface-soft));
+  transform: translateY(-1px);
+}
+
+.snack-dialog-chip:focus-visible,
+.snack-dialog-field input:focus,
+.snack-dialog-field textarea:focus,
+.snack-dialog-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #ef4444 18%, transparent);
+}
+
+.snack-dialog-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.snack-dialog-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.snack-dialog-field input,
+.snack-dialog-field textarea {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-surface-soft);
+  color: var(--app-text);
+  padding: 0.8rem 0.9rem;
+}
+
+.snack-dialog-field input:focus,
+.snack-dialog-field textarea:focus {
+  border-color: #ef4444;
+}
+
+.snack-dialog-description {
+  margin-top: 0.8rem;
+}
+
+.snack-dialog-description textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.snack-dialog-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.snack-dialog-actions.is-editing {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.snack-dialog-actions button {
+  min-height: 3rem;
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.snack-dialog-secondary {
+  border-color: var(--app-border) !important;
+  background: var(--app-surface-soft);
+  color: var(--app-text);
+}
+
+.snack-dialog-delete {
+  border-color: color-mix(in srgb, #ef4444 28%, var(--app-border)) !important;
+  background: color-mix(in srgb, #ef4444 9%, var(--app-surface-soft));
+  color: #b91c1c;
+}
+
+[data-theme='dark'] .snack-dialog-delete {
+  color: #fca5a5;
+}
+
+.snack-dialog-primary {
+  background: #c8101e;
+  color: #fff;
+  box-shadow: 0 8px 20px rgb(200 16 30 / 0.22);
+}
+
+.snack-dialog-primary:hover {
+  background: #a90e19;
+}
+
+.snack-dialog-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.snack-dialog-actions.is-editing .snack-dialog-primary {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 380px) {
+  .snack-dialog-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 440px) {
+  .snack-dialog-actions.is-editing {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .snack-dialog-actions.is-editing .snack-dialog-primary {
+    grid-column: auto;
+  }
+}
