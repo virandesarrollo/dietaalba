@@ -81,6 +81,8 @@ type SourceDay = {
   meals: Meal[];
 };
 
+type RevisionedMutationLock = ReturnType<typeof createMutationLock> & { currentRevision(): number };
+
 const parseDateString = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day);
@@ -173,7 +175,7 @@ export default function Home() {
   const mutationGuardRef = useRef(createLatestRequestGuard());
   const reviewMutationBusyRef = useRef(createMutationLock());
   const planMutationGuardRef = useRef(createLatestRequestGuard());
-  const planMutationBusyRef = useRef(createMutationLock());
+  const planMutationBusyRef = useRef(createMutationLock() as RevisionedMutationLock);
 
   useEffect(() => {
     const requestGuard = requestGuardRef.current;
