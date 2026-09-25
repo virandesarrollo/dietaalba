@@ -481,7 +481,7 @@ export default function AdminPage() {
         <div className="flex h-full flex-col">
           <div className="mb-7">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">Panel profesional</p>
-            <h1 className="mt-2 text-2xl font-bold text-slate-800">Dieta Alba - Admin</h1>
+            <h1 className="mt-2 text-2xl font-bold text-slate-800">AGAFIT · Administración</h1>
             <div className="mt-4 rounded-2xl bg-rose-50 p-4">
               <p className="font-semibold text-slate-700">{currentProfile?.full_name || 'Usuario'}</p>
               <p className="mt-1 truncate text-xs text-slate-500">{currentProfile?.email}</p>

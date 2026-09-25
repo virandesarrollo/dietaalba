@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Alba's Lifestyle",
-    short_name: "Alba Life",
+    name: "AGAFIT",
+    short_name: "AGAFIT",
     description: "Mi plan de alimentación y bienestar",
     start_url: "/",
     display: "standalone",

@@ -5,12 +5,12 @@ import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { OfflineSupport } from "@/components/OfflineSupport";
 
 export const metadata: Metadata = {
-  title: "Alba's Lifestyle ✨",
+  title: "AGAFIT",
   description: "Mi plan de alimentación y bienestar",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Alba Life",
+    title: "AGAFIT",
   },
   icons: {
     icon: "/icon.png",

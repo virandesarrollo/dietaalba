@@ -1431,7 +1431,7 @@ export default function Home() {
             <Sparkles className="text-pink-400" size={32} />
           </div>
           <h1 className="text-2xl font-bold text-slate-800 mb-2">Bienvenida ✨</h1>
-          <p className="text-sm text-slate-500 mb-8">Inicia sesión para continuar con tu plan diario de Dieta Alba.</p>
+          <p className="text-sm text-slate-500 mb-8">Inicia sesión para continuar con tu plan diario de AGAFIT.</p>
           
           <button
             onClick={() => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })}

@@ -264,7 +264,7 @@ export default function SettingsPage() {
           <p className="text-xs font-semibold uppercase tracking-widest">Preferencias personales</p>
         </div>
         <h1 className="mt-2 text-3xl font-bold text-slate-800">Ajustes</h1>
-        <p className="theme-muted mt-2 text-sm">Personaliza tu experiencia en Dieta Alba.</p>
+        <p className="theme-muted mt-2 text-sm">Personaliza tu experiencia en AGAFIT.</p>
       </header>
 
       <div className="px-5 pt-7">
