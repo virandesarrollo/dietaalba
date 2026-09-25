@@ -495,7 +495,7 @@ export default function Home() {
       .from('daily_plan')
       .select('title, meal_type, ingredients, recipe_url, is_free_meal')
       .eq('user_id', userId)
-      .eq('date', selectedDate);
+      .gte('date', madridDateString());
     if (!requestGuard.isCurrent(request)) return;
 
     const allRecipes: Recipe[] = [];
