@@ -53,7 +53,7 @@ export default function FriendsPage() {
     };
   }, [load]);
 
-  async function runAction(action: string, mutation: () => Promise<{ error: unknown }>, successMessage: string) {
+  async function runAction(action: string, mutation: () => PromiseLike<{ error: unknown }>, successMessage: string) {
     if (busyActionRef.current) return;
     busyActionRef.current = action;
     setBusyAction(action);
