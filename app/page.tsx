@@ -81,8 +81,6 @@ type SourceDay = {
   meals: Meal[];
 };
 
-type RevisionedMutationLock = ReturnType<typeof createMutationLock> & { currentRevision(): number };
-
 const parseDateString = (dateStr: string) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day);
@@ -175,7 +173,25 @@ export default function Home() {
   const mutationGuardRef = useRef(createLatestRequestGuard());
   const reviewMutationBusyRef = useRef(createMutationLock());
   const planMutationGuardRef = useRef(createLatestRequestGuard());
-  const planMutationBusyRef = useRef(createMutationLock() as RevisionedMutationLock);
+  const planMutationBusyRef = useRef(createMutationLock());
+  const planMutationRevisionRef = useRef(0);
+
+  function acquirePlanMutationLock() {
+    const lock = planMutationBusyRef.current;
+    if (!lock.tryAcquire()) return null;
+    planMutationRevisionRef.current += 1;
+    return lock;
+  }
+
+  function releasePlanMutationLock(lock: ReturnType<typeof createMutationLock>) {
+    lock.release();
+    planMutationRevisionRef.current += 1;
+  }
+
+  function resetPlanMutationLock() {
+    planMutationBusyRef.current.reset();
+    planMutationRevisionRef.current += 1;
+  }
 
   useEffect(() => {
     const requestGuard = requestGuardRef.current;
@@ -188,7 +204,7 @@ export default function Home() {
       mutationGuardRef.current.invalidate();
       reviewMutationBusyRef.current.reset();
       planMutationGuard.invalidate();
-      planMutationBusyRef.current.reset();
+      resetPlanMutationLock();
       setMutatingPlan(false);
       setApplyingDayChange(false);
       setSavingNewMeal(false);
@@ -321,7 +337,7 @@ export default function Home() {
     commit(() => setLoadingFeatures(false));
 
     // 1. Cargar comidas y saltos como una única instantánea de interfaz.
-    const planMutationRevision = planMutationBusyRef.current.currentRevision();
+    const planMutationRevision = planMutationRevisionRef.current;
     const [mealsResult, skipsResult] = await Promise.all([
       supabase
         .from('daily_plan')
@@ -336,7 +352,7 @@ export default function Home() {
     const { data: skipsData, error: skipsError } = skipsResult;
     const canPublishPlanSnapshot = allowPlanSnapshotWhileMutating || (
       !planMutationBusyRef.current.isBusy()
-      && planMutationBusyRef.current.currentRevision() === planMutationRevision
+      && planMutationRevisionRef.current === planMutationRevision
     );
     let planSnapshotPublished = false;
     if (canPublishPlanSnapshot && (mealsError || skipsError)) {
@@ -626,8 +642,8 @@ export default function Home() {
     const targetMeal = meals.find(meal => meal.id === mealId);
     if (!targetMeal) return;
     const mealType = targetMeal.meal_type;
-    const lock = planMutationBusyRef.current;
-    if (!lock.tryAcquire()) return;
+    const lock = acquirePlanMutationLock();
+    if (!lock) return;
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     const previousMeals = meals;
@@ -691,7 +707,7 @@ export default function Home() {
       }
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
-        lock.release();
+        releasePlanMutationLock(lock);
         setMutatingPlan(false);
       }
     }
@@ -708,8 +724,8 @@ export default function Home() {
     if (!targetMeal) return;
     const mealType = targetMeal.meal_type;
     const nextSkipped = !skippedMealTypes.has(mealType);
-    const lock = planMutationBusyRef.current;
-    if (!lock.tryAcquire()) return;
+    const lock = acquirePlanMutationLock();
+    if (!lock) return;
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setMutatingPlan(true);
@@ -767,7 +783,7 @@ export default function Home() {
       }
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
-        lock.release();
+        releasePlanMutationLock(lock);
         setMutatingPlan(false);
       }
     }
@@ -776,8 +792,8 @@ export default function Home() {
   async function reloadPlanView() {
     const userId = session?.user?.id;
     if (!userId) return;
-    const lock = planMutationBusyRef.current;
-    if (!lock.tryAcquire()) return;
+    const lock = acquirePlanMutationLock();
+    if (!lock) return;
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setMutatingPlan(true);
@@ -792,7 +808,7 @@ export default function Home() {
       if (guard.isCurrent(mutation)) setLoading(false);
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
-        lock.release();
+        releasePlanMutationLock(lock);
         setMutatingPlan(false);
       }
     }
@@ -808,7 +824,7 @@ export default function Home() {
     requestGuardRef.current.invalidateRequests();
     sourceDaysGuardRef.current.invalidateRequests();
     planMutationGuardRef.current.invalidate();
-    planMutationBusyRef.current.reset();
+    resetPlanMutationLock();
     setMutatingPlan(false);
     setApplyingDayChange(false);
     setSavingNewMeal(false);
@@ -895,8 +911,8 @@ export default function Home() {
     }
     const nextOptionOrder = Math.max(0, ...group.map(meal => meal.option_order ?? 1)) + 1;
     const nextMealOrder = group[0]?.meal_order ?? Math.max(0, ...meals.map(meal => meal.meal_order ?? 0)) + 1;
-    const lock = planMutationBusyRef.current;
-    if (!lock.tryAcquire()) return;
+    const lock = acquirePlanMutationLock();
+    if (!lock) return;
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setSavingNewMeal(true);
@@ -927,7 +943,7 @@ export default function Home() {
       if (guard.isCurrent(mutation)) setPlanError('No se pudo añadir la opción. Inténtalo de nuevo.');
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
-        lock.release();
+        releasePlanMutationLock(lock);
         setSavingNewMeal(false);
         setMutatingPlan(false);
       }
@@ -980,8 +996,8 @@ export default function Home() {
     const userId = session?.user?.id;
     const sourceDate = selectedSourceDate;
     if (!userId || !sourceDate || sourceDate === selectedDate || loading || planRefreshRequired) return;
-    const lock = planMutationBusyRef.current;
-    if (!lock.tryAcquire()) return;
+    const lock = acquirePlanMutationLock();
+    if (!lock) return;
     const guard = planMutationGuardRef.current;
     const mutation = guard.startRequest(guard.currentGeneration(), userId, selectedDate);
     setApplyingDayChange(true);
@@ -1022,7 +1038,7 @@ export default function Home() {
       }
     } finally {
       if (guard.isGenerationCurrent(mutation.generation)) {
-        lock.release();
+        releasePlanMutationLock(lock);
         setApplyingDayChange(false);
         setMutatingPlan(false);
       }
