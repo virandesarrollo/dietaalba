@@ -1,2 +1,6 @@
-self.addEventListener('push', (event) => { const data = event.data?.json() ?? {}; event.waitUntil(self.registration.showNotification(data.title ?? 'Buenos días', { body: data.body ?? 'Hoy es un buen día para cuidarte.', icon: '/icon-192.png', data: { url: '/' } })); });
-self.addEventListener('notificationclick', (event) => { event.notification.close(); event.waitUntil(clients.openWindow(event.notification.data?.url ?? '/')); });
+const CACHE='alba-shell-v1';
+self.addEventListener('install',(event)=>event.waitUntil(caches.open(CACHE).then((cache)=>cache.addAll(['/','/icon-192.png','/icon-512.png']))));
+self.addEventListener('activate',(event)=>event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',(event)=>{ const url=new URL(event.request.url); if(event.request.method!=='GET'||url.origin!==self.location.origin)return; if(url.pathname.startsWith('/_next/static/')) { event.respondWith(caches.match(event.request).then((cached)=>cached||fetch(event.request).then((response)=>{ const copy=response.clone(); caches.open(CACHE).then((cache)=>cache.put(event.request,copy)); return response; }))); return; } if(event.request.mode==='navigate') event.respondWith(fetch(event.request).catch(()=>caches.match('/'))); });
+self.addEventListener('push',(event)=>{ const data=event.data?.json()??{}; event.waitUntil(self.registration.showNotification(data.title??'Buenos días',{body:data.body??'Hoy es un buen día para cuidarte.',icon:'/icon-192.png',data:{url:'/'}})); });
+self.addEventListener('notificationclick',(event)=>{ event.notification.close(); event.waitUntil(clients.openWindow(event.notification.data?.url??'/')); });

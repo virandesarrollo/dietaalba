@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
+import { OfflineSupport } from "@/components/OfflineSupport";
 
 export const metadata: Metadata = {
   title: "Alba's Lifestyle ✨",
@@ -28,7 +29,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="font-sans antialiased"><ThemeProvider><ConfirmDialogProvider>{children}</ConfirmDialogProvider></ThemeProvider></body>
+      <body className="font-sans antialiased"><OfflineSupport /><ThemeProvider><ConfirmDialogProvider>{children}</ConfirmDialogProvider></ThemeProvider></body>
     </html>
   );
 }
