@@ -54,7 +54,6 @@ export function WorkTimeCard({ date, userId }: { date: string; userId: string })
   if (!isWorkday(date)) return null;
   const today = date === madridDateString(new Date(now));
   const elapsed = time.active && today ? Math.max(0, Math.floor((now - loadedAt) / 1000)) : 0;
-  const workedSeconds = time.worked_seconds + elapsed;
   const remaining = remainingWorkSeconds(goalMinutes, time.worked_seconds, time.active && today, elapsed);
 
   async function retryLoad() {
@@ -87,13 +86,9 @@ export function WorkTimeCard({ date, userId }: { date: string; userId: string })
     finally { setBusy(false); }
   }
 
-  return <section className="mt-3 rounded-2xl border border-indigo-100 bg-white/85 p-4 text-sm shadow-sm" aria-label="Tiempo de trabajo">
-    <p className="font-semibold text-slate-800">Tiempo de trabajo</p>
+  return <section className="mt-3 rounded-2xl border border-indigo-100 bg-white/85 p-4 text-sm shadow-sm" aria-label="Tiempo de trabajo restante">
     {loading ? <p className="mt-2 text-slate-500">Cargando tiempo…</p> : loadFailed ? null : <>
-      {goalMinutes > 0 ? <>
-        <p className="mt-1 text-slate-600">Te quedan <strong className="text-indigo-700">{formatWorkSeconds(remaining)}</strong> para cumplir el horario {today ? 'de hoy' : 'de este día'}.</p>
-        <p className="mt-1 text-xs text-slate-500">Trabajado: {formatWorkSeconds(workedSeconds)} · Objetivo: {formatWorkSeconds(goalMinutes * 60)}</p>
-      </> : <p className="mt-1 text-slate-500">Sin horas de trabajo programadas para este día.</p>}
+      <p className="text-center text-3xl font-bold tabular-nums text-indigo-700 sm:text-4xl">{formatWorkSeconds(remaining)}</p>
       {today && (goalMinutes > 0 || time.active) && <div className="mt-3 flex gap-2">
         <button type="button" disabled={busy || time.active || goalMinutes === 0} onClick={() => void register('start_my_work_time')} className="min-h-11 flex-1 rounded-xl bg-indigo-600 px-4 font-semibold text-white disabled:opacity-40">Entrar</button>
         <button type="button" disabled={busy || !time.active} onClick={() => void register('stop_my_work_time')} className="min-h-11 flex-1 rounded-xl border border-indigo-200 px-4 font-semibold text-indigo-700 disabled:opacity-40">Salir</button>
