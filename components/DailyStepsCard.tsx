@@ -29,7 +29,7 @@ export function DailyStepsCard({
   const circumference = 2 * Math.PI * radius;
 
   return (
-    <section className="theme-surface mt-3 rounded-3xl border theme-border p-4 shadow-sm">
+    <section className="theme-surface mt-3 mb-3 rounded-3xl border theme-border p-4 shadow-sm">
       <div className="flex items-center gap-4">
         <div className="relative grid size-24 shrink-0 place-items-center">
           <svg
