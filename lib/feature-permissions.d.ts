@@ -9,7 +9,7 @@ export type FeatureCode =
   | 'track_weight'
   | 'track_blood_pressure'
   | 'track_water'
-  | 'track_snacks' | 'track_night_binges' | 'patient_friends' | 'friend_challenges' | 'track_calories' | 'track_steps';
+  | 'track_snacks' | 'track_night_binges' | 'patient_friends' | 'friend_challenges' | 'track_calories' | 'track_steps' | 'view_day_schedule';
 
 export type FeatureCapabilities = {
   canRateRecipes: boolean;
@@ -29,6 +29,7 @@ export type FeatureCapabilities = {
   canUseFriendChallenges: boolean;
   canTrackCalories: boolean;
   canTrackSteps: boolean;
+  canViewDaySchedule: boolean;
 };
 
 export function deriveFeatureCapabilities(
