@@ -17,12 +17,19 @@ export function DayScheduleEditor({ membershipId }: { membershipId: string }) {
   useEffect(() => {
     if (!open) return;
     let active = true;
-    supabase.rpc('get_member_schedule', { p_membership_id: membershipId }).then(({ data, error }) => {
-      if (!active) return;
-      if (error) { setLoadFailed(true); setMessage('No se pudo cargar el horario.'); }
-      else { setSlots(normalizeSchedule(data)); setLoadFailed(false); setMessage(null); }
-      setLoading(false);
-    }).catch(() => { if (active) { setLoadFailed(true); setMessage('No se pudo cargar el horario.'); setLoading(false); } });
+    async function load() {
+      try {
+        const { data, error } = await supabase.rpc('get_member_schedule', { p_membership_id: membershipId });
+        if (!active) return;
+        if (error) { setLoadFailed(true); setMessage('No se pudo cargar el horario.'); }
+        else { setSlots(normalizeSchedule(data)); setLoadFailed(false); setMessage(null); }
+      } catch {
+        if (active) { setLoadFailed(true); setMessage('No se pudo cargar el horario.'); }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void load();
     return () => { active = false; };
   }, [membershipId, open]);
 
