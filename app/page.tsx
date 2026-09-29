@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback, type Keyboard
 import { Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
@@ -179,6 +180,7 @@ export default function Home() {
   // Estado para feedback de copiado al portapapeles
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const requestGuardRef = useRef(createLatestRequestGuard());
+  const authIdentityRef = useRef({ initialized: false, generation: 0, userId: null as string | null });
   const sourceDaysGuardRef = useRef(createLatestRequestGuard());
   const mutationGuardRef = useRef(createLatestRequestGuard());
   const reviewMutationBusyRef = useRef(createMutationLock());
@@ -213,6 +215,9 @@ export default function Home() {
     const stepMutationGuard = stepMutationGuardRef.current;
     const initialSessionGeneration = requestGuard.currentGeneration();
     const applyAuthSession = (nextSession: Session | null) => {
+      const transition = advanceAuthIdentity(authIdentityRef.current, nextSession?.user.id ?? null);
+      authIdentityRef.current = transition.state;
+      if (!transition.changed) return;
       const generation = requestGuard.invalidate();
       sourceDaysGuard.invalidate();
       mutationGuardRef.current.invalidate();
@@ -267,8 +272,9 @@ export default function Home() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       applyAuthSession(session);
+      if (event === 'USER_UPDATED') setSession(session);
     });
 
     return () => {
