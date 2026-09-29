@@ -107,7 +107,7 @@ export default function Home() {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
   const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
-  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps } = featureCapabilities;
+  const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps, canViewDaySchedule } = featureCapabilities;
   const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
@@ -1525,6 +1525,7 @@ export default function Home() {
               onInputChange={setStepInput}
               onSave={saveDailySteps}
             />}
+            {canViewDaySchedule && <button type="button" onClick={() => router.push(`/schedule?date=${selectedDate}`)} className="mt-4 w-full rounded-2xl border border-indigo-100 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-700 shadow-sm">Horarios</button>}
             {canTrackCalories && (
               <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
