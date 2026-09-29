@@ -8,6 +8,7 @@ import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, ty
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, groupManageableMembers, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
 import { supabase } from '@/lib/supabase';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { DayScheduleEditor } from '@/components/DayScheduleEditor';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 
@@ -54,6 +55,7 @@ const ALL_FEATURES: { code: FeatureCode; label: string }[] = [
   { code: 'friend_challenges', label: 'Retos entre amigos' },
   { code: 'track_calories', label: 'Control de kcal' },
   { code: 'track_steps', label: 'Control de pasos' },
+  { code: 'view_day_schedule', label: 'Horario de Mi día' },
 ];
 function safeError(error: { code?: string } | null, fallback: string) {
   return error?.code === '42501' ? 'No tienes permiso para realizar esta operación.' : fallback;
@@ -390,6 +392,7 @@ export default function UsersPage() {
               <div className="mt-4"><p className="mb-2 text-xs font-semibold">Roles</p><div className="flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={roles.includes(code)} onChange={() => setDraftRoles((all) => ({ ...all, [member.membership_id]: toggleRole(roles, code) }))} disabled={!actions.canEditRoles || busy} />{label}</label>)}</div><button type="button" onClick={() => void saveRoles(member)} disabled={!actions.canEditRoles || busy || roles.length === 0} className="mt-3 rounded-xl bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar roles'}</button></div>
               <div className="mt-4"><p className="mb-2 text-xs font-semibold">Funcionalidades</p><div className="flex flex-wrap gap-2">{ALL_FEATURES.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={features.includes(code)} onChange={() => setDraftFeatures((all) => ({ ...all, [member.membership_id]: toggleFeature(features, code) }))} disabled={!actions.canSetFeatures || busy} />{label}</label>)}</div></div>
               <button type="button" onClick={() => void saveFeatures(member)} disabled={!actions.canSetFeatures || busy} className="mt-3 rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar funcionalidades'}</button>
+              {member.user_id && member.status === 'active' && member.roles.includes('patient') && actions.canSetFeatures && <DayScheduleEditor membershipId={member.membership_id} />}
               <div className="mt-4"><p className="mb-2 text-xs font-semibold">Acciones de cuenta</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex items-center gap-1 rounded-xl bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="rounded-xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="rounded-xl bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div></div>
               {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
             </article>;
