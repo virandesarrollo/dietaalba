@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, Dumbbell, HeartPulse, Scale, Users } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -50,7 +50,7 @@ function MetricChart({ title, values, color = '#fb7185' }: { title: string; valu
       <svg viewBox="0 0 100 100" role="img" aria-label={`Evolución de ${title}`} className="mt-4 h-40 w-full overflow-visible">
         <line x1="0" y1="90" x2="100" y2="90" stroke="#e2e8f0" strokeWidth="1" />
         <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-        {points.split(' ').map((point) => { const [cx, cy] = point.split(','); return <circle key={point} cx={cx} cy={cy} r="2.5" fill={color} />; })}
+        {points.split(' ').map((point: string) => { const [cx, cy] = point.split(','); return <circle key={point} cx={cx} cy={cy} r="2.5" fill={color} />; })}
       </svg>
       <div className="flex justify-between text-xs text-slate-400"><span>{formatDate(values[0].date)}</span><span>{formatDate(values[values.length - 1].date)}</span></div>
     </>}
