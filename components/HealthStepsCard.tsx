@@ -172,7 +172,7 @@ export function HealthStepsCard({ date }: { date: string }) {
         savingRef.current = false;
         setSaving(false);
         if (navigator.onLine) {
-          void store.list(userId).then((operations) => {
+          void store.list(userId).then((operations: unknown[]) => {
             if (operations.length > 0 && revisionRef.current === revision) void flush(userId, revision);
           });
         }
