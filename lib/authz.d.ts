@@ -30,6 +30,7 @@ export function deriveAvailableViews(
     canTrackGymWorkouts?: boolean;
     canManageGymWorkouts?: boolean;
     canTrackHealth?: boolean;
+    canTrackSteps?: boolean;
     canUsePatientFriends?: boolean;
   },
 ): AppView[];
