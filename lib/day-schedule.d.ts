@@ -3,5 +3,6 @@ export function minutes(time: string): number;
 export function validSchedule(slots: unknown): slots is ScheduleSlot[];
 export function normalizeSchedule(value: unknown): ScheduleSlot[];
 export function daySchedule(slots: ScheduleSlot[], date: string): ScheduleSlot[];
+export function shiftScheduleDate(date: string, days: number): string;
 export function scheduleHours(slots: ScheduleSlot[]): { gym: number; work: number };
 export function formatDuration(totalMinutes: number): string;

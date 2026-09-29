@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DayScheduleCard } from '@/components/DayScheduleCard';
-import { normalizeSchedule, type ScheduleSlot } from '@/lib/day-schedule.js';
+import { normalizeSchedule, shiftScheduleDate, type ScheduleSlot } from '@/lib/day-schedule.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { supabase } from '@/lib/supabase';
 
@@ -68,7 +69,14 @@ export function ScheduleClient({ initialDate }: { initialDate: string }) {
       <button type="button" onClick={() => router.push('/')} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-indigo-700 shadow-sm">← Mi día</button>
       <header className="mt-6"><p className="text-xs font-semibold uppercase tracking-widest text-rose-500">Mi día</p><h1 className="mt-1 text-2xl font-bold text-slate-800">Horarios</h1><p className="mt-2 text-sm text-slate-500">Gimnasio y trabajo programados para cada día.</p></header>
       {allowed && <>
-        <label className="mt-6 block text-sm font-semibold text-slate-700">Fecha<input type="date" value={date} onChange={(event) => changeDate(event.target.value)} className="mt-2 block min-h-12 w-full rounded-xl border border-indigo-100 bg-white px-3 text-sm" /></label>
+        <div className="mt-6">
+          <label htmlFor="schedule-date" className="block text-sm font-semibold text-slate-700">Fecha</label>
+          <div className="mt-2 flex items-center gap-2">
+            <button type="button" aria-label="Día anterior" onClick={() => changeDate(shiftScheduleDate(date, -1))} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-indigo-100 bg-white text-indigo-700"><ChevronLeft size={20} /></button>
+            <input id="schedule-date" type="date" value={date} onChange={(event) => changeDate(event.target.value)} className="min-h-12 min-w-0 flex-1 rounded-xl border border-indigo-100 bg-white px-3 text-sm" />
+            <button type="button" aria-label="Día siguiente" onClick={() => changeDate(shiftScheduleDate(date, 1))} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-indigo-100 bg-white text-indigo-700"><ChevronRight size={20} /></button>
+          </div>
+        </div>
         <DayScheduleCard date={date} slots={slots} loading={loading} error={error} />
       </>}
       {!allowed && loading && <p className="mt-6 text-sm text-slate-500">Comprobando acceso…</p>}
