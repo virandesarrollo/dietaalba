@@ -104,6 +104,209 @@ main.theme-page > form.fixed {
   z-index: 50;
 }
 
+.gym-progress-sheet {
+  max-height: calc(100dvh - 1rem);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+  border-radius: 2rem 2rem 1.25rem 1.25rem;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 28px 80px rgb(15 23 42 / 0.32);
+  animation: gym-progress-enter 220ms ease-out;
+}
+
+.gym-progress-hero {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border-bottom: 1px solid var(--app-border);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, #8b5cf6 14%, var(--app-surface)),
+    color-mix(in srgb, #ec4899 10%, var(--app-surface)));
+  padding: 1rem 1.1rem;
+  color: var(--app-heading);
+}
+
+.gym-progress-hero-icon,
+.gym-progress-close {
+  display: grid;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: 1rem;
+}
+
+.gym-progress-hero-icon {
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  color: white;
+  box-shadow: 0 8px 22px rgb(139 92 246 / 0.3);
+}
+
+.gym-progress-close {
+  background: color-mix(in srgb, var(--app-surface-soft) 82%, transparent);
+  color: var(--app-muted);
+}
+
+.gym-progress-eyebrow {
+  color: #8b5cf6;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.gym-progress-body {
+  max-height: calc(100dvh - 6.5rem);
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.gym-progress-filter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-surface-soft);
+  padding: 0.25rem;
+}
+
+.gym-progress-filter button {
+  min-height: 2.6rem;
+  border-radius: 0.75rem;
+  color: var(--app-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.gym-progress-filter button[aria-pressed='true'] {
+  background: var(--app-surface);
+  color: var(--app-heading);
+  box-shadow: 0 5px 18px rgb(15 23 42 / 0.1);
+}
+
+.gym-progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.gym-progress-stat {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  border: 1px solid var(--app-border);
+  border-radius: 1.1rem;
+  background: var(--app-surface-soft);
+  padding: 0.75rem;
+}
+
+.gym-progress-stat span,
+.gym-progress-stat small {
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: 0.67rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gym-progress-stat strong {
+  color: var(--app-heading);
+  font-size: clamp(0.85rem, 3.4vw, 1.05rem);
+}
+
+.gym-progress-stat.is-accent {
+  border-color: color-mix(in srgb, #8b5cf6 42%, var(--app-border));
+  background: color-mix(in srgb, #8b5cf6 9%, var(--app-surface));
+}
+
+.gym-progress-stat.is-positive strong { color: #059669; }
+[data-theme='dark'] .gym-progress-stat.is-positive strong { color: #34d399; }
+
+.gym-progress-chart {
+  margin-top: 0.9rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1.4rem;
+  background: linear-gradient(180deg, var(--app-surface-soft), var(--app-surface));
+  padding: 1rem 0.85rem 0.4rem;
+}
+
+.gym-progress-chart svg { width: 100%; height: auto; overflow: visible; }
+.gym-progress-grid { stroke: var(--app-border); stroke-dasharray: 4 5; stroke-width: 1; }
+.gym-progress-line { fill: none; stroke: url(#gym-progress-line); stroke-linecap: round; stroke-linejoin: round; stroke-width: 4; }
+.gym-progress-dot-halo { fill: color-mix(in srgb, #8b5cf6 20%, transparent); }
+.gym-progress-dot { fill: #8b5cf6; stroke: var(--app-surface); stroke-width: 2; }
+.gym-progress-axis,
+.gym-progress-date { fill: var(--app-muted); font-size: 8px; font-weight: 700; }
+.gym-progress-reps { fill: var(--app-heading); font-size: 8px; font-weight: 900; }
+
+.gym-progress-count {
+  border-radius: 999px;
+  background: color-mix(in srgb, #8b5cf6 12%, var(--app-surface));
+  padding: 0.3rem 0.55rem;
+  color: #7c3aed;
+  font-size: 0.67rem;
+  font-weight: 800;
+}
+
+.gym-progress-history { margin-top: 1rem; }
+.gym-progress-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.55rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-surface-soft);
+  padding: 0.8rem;
+}
+
+.gym-progress-session time { color: var(--app-heading); font-size: 0.8rem; font-weight: 800; }
+.gym-progress-session p { margin-top: 0.2rem; color: var(--app-muted); font-size: 0.68rem; }
+.gym-progress-session > strong { flex: none; color: #7c3aed; font-size: 0.9rem; }
+.gym-progress-session > strong small { color: var(--app-muted); font-size: 0.7rem; }
+
+.gym-progress-state {
+  display: flex;
+  min-height: 18rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  color: var(--app-muted);
+  text-align: center;
+}
+
+.gym-progress-state.is-error { color: #dc2626; }
+[data-theme='dark'] .gym-progress-eyebrow,
+[data-theme='dark'] .gym-progress-count,
+[data-theme='dark'] .gym-progress-session > strong {
+  color: #c4b5fd;
+}
+[data-theme='dark'] .gym-progress-state.is-error { color: #fca5a5; }
+.gym-progress-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--app-border);
+  border-top-color: #8b5cf6;
+  border-radius: 999px;
+  animation: gym-progress-spin 700ms linear infinite;
+}
+
+@keyframes gym-progress-enter {
+  from { opacity: 0; transform: translateY(1rem) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gym-progress-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .gym-progress-sheet,
+  .gym-progress-spinner { animation: none; }
+}
+
 .snack-dialog-card {
   border: 1px solid var(--app-border);
   border-top: 4px solid #dc2626;

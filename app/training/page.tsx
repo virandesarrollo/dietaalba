@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -16,11 +17,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
+  TrendingUp,
   Trash2,
   X,
 } from "lucide-react";
 import { AppMobileNavigation } from "@/components/AppMobileNavigation";
 import { AccountMenu } from "@/components/AccountMenu";
+import { GymProgressDialog } from "@/components/GymProgressDialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import {
   deriveAppViews,
@@ -180,6 +183,9 @@ export default function TrainingPage() {
     message: string;
   } | null>(null);
   const [progressExercise, setProgressExercise] = useState<string | null>(null);
+  const [progressExerciseName, setProgressExerciseName] = useState("");
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressError, setProgressError] = useState("");
   const [progressRows, setProgressRows] = useState<
     { workout_date: string; weight_kg: number; reps: number }[]
   >([]);
@@ -189,6 +195,8 @@ export default function TrainingPage() {
   const pickerDialogRef = useRef<HTMLElement>(null);
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const pickerWasOpen = useRef(false);
+  const progressTriggerRef = useRef<HTMLButtonElement>(null);
+  const progressRequestRef = useRef(0);
   const mutationLockRef = useRef(false);
   const mutationTokenRef = useRef(0);
   const workoutGenerationRef = useRef(0);
@@ -249,6 +257,12 @@ export default function TrainingPage() {
       setAppNavigationViews([]);
       setFeedback("");
       setShareFeedback(null);
+      progressRequestRef.current += 1;
+      setProgressExercise(null);
+      setProgressExerciseName("");
+      setProgressRows([]);
+      setProgressLoading(false);
+      setProgressError("");
       setShowPicker(false);
       mutationTokenRef.current += 1;
       mutationLockRef.current = false;
@@ -315,6 +329,11 @@ export default function TrainingPage() {
     async function load() {
       setLoading(true);
       setShareFeedback(null);
+      progressRequestRef.current += 1;
+      setProgressExercise(null);
+      setProgressRows([]);
+      setProgressLoading(false);
+      setProgressError("");
       setShowSupersetPicker(false);
       setSupersetSelection([]);
       setShowCopyDialog(false);
@@ -595,26 +614,77 @@ export default function TrainingPage() {
     setEditingSetId(null);
   }
 
-  async function showProgress(exerciseCode: string) {
-    if (progressExercise === exerciseCode) {
-      setProgressExercise(null);
-      return;
-    }
-    const result = await supabase
-      .from("gym_workout_sets")
-      .select("workout_date, weight_kg, reps")
-      .eq("user_id", userId)
-      .eq("exercise_code", exerciseCode)
-      .order("workout_date");
-    setProgressRows(
-      (result.data ?? []) as {
+  async function showProgress(
+    exerciseCode: string,
+    exerciseName: string,
+    trigger: HTMLButtonElement,
+  ) {
+    const requestToken = ++progressRequestRef.current;
+    const requestUserId = currentUserIdRef.current;
+    progressTriggerRef.current = trigger;
+    setProgressExercise(exerciseCode);
+    setProgressExerciseName(exerciseName);
+    setProgressRows([]);
+    setProgressError("");
+    setProgressLoading(true);
+    try {
+      const pageSize = 1000;
+      const loadedRows: {
         workout_date: string;
         weight_kg: number;
         reps: number;
-      }[],
-    );
-    setProgressExercise(exerciseCode);
+      }[] = [];
+      let offset = 0;
+      while (true) {
+        const result = await supabase
+          .from("gym_workout_sets")
+          .select("id, workout_date, weight_kg, reps")
+          .eq("user_id", userId)
+          .eq("exercise_code", exerciseCode)
+          .order("workout_date")
+          .order("created_at")
+          .order("id")
+          .range(offset, offset + pageSize - 1);
+        if (
+          requestToken !== progressRequestRef.current ||
+          requestUserId !== currentUserIdRef.current
+        )
+          return;
+        if (result.error) {
+          setProgressError("No se pudo cargar el seguimiento.");
+          return;
+        }
+        const pageRows = (result.data ?? []) as {
+          workout_date: string;
+          weight_kg: number;
+          reps: number;
+        }[];
+        loadedRows.push(...pageRows);
+        if (pageRows.length < pageSize) break;
+        offset += pageSize;
+      }
+      setProgressRows(loadedRows);
+    } catch {
+      if (
+        requestToken === progressRequestRef.current &&
+        requestUserId === currentUserIdRef.current
+      )
+        setProgressError("No se pudo cargar el seguimiento.");
+    } finally {
+      if (
+        requestToken === progressRequestRef.current &&
+        requestUserId === currentUserIdRef.current
+      )
+        setProgressLoading(false);
+    }
   }
+
+  const closeProgress = useCallback(() => {
+    progressRequestRef.current += 1;
+    setProgressExercise(null);
+    setProgressLoading(false);
+    setProgressError("");
+  }, []);
 
   async function openCopySources() {
     setShowCopyDialog(true);
@@ -1185,99 +1255,15 @@ export default function TrainingPage() {
           </header>
           <button
             type="button"
-            onClick={() => void showProgress(card.exerciseCode)}
-            className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-50 text-sm font-semibold text-indigo-700"
+            aria-haspopup="dialog"
+            onClick={(event) =>
+              void showProgress(card.exerciseCode, card.name, event.currentTarget)
+            }
+            className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-indigo-50 text-sm font-semibold text-indigo-700"
           >
-            {progressExercise === card.exerciseCode
-              ? "Ocultar progreso"
-              : "Ver progreso"}
+            <TrendingUp size={18} aria-hidden="true" />
+            Seguimiento
           </button>
-          {progressExercise === card.exerciseCode && (
-            <div className="fixed inset-0 z-50 flex items-end bg-slate-950/40 p-3">
-              <section
-                role="dialog"
-                aria-modal="true"
-                aria-label="Progreso del ejercicio"
-                className="w-full rounded-3xl bg-white p-5 shadow-2xl"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="font-bold">Progreso · {card.name}</h2>
-                  <button
-                    type="button"
-                    onClick={() => setProgressExercise(null)}
-                    className="min-h-12 min-w-12 text-xl"
-                  >
-                    ×
-                  </button>
-                </div>
-                <svg
-                  viewBox="0 0 300 180"
-                  className="h-52 w-full rounded-2xl bg-slate-50"
-                  aria-label="Gráfico de peso por repeticiones"
-                >
-                  {[...new Set(progressRows.map((row) => row.reps))]
-                    .sort((a, b) => a - b)
-                    .map((reps, index) => {
-                      const rows = progressRows.filter(
-                        (row) => row.reps === reps,
-                      );
-                      const max = Math.max(
-                        ...progressRows.map((row) => row.weight_kg),
-                        1,
-                      );
-                      const color = [
-                        "#4f46e5",
-                        "#db2777",
-                        "#059669",
-                        "#d97706",
-                      ][index % 4];
-                      return (
-                        <polyline
-                          key={reps}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth="3"
-                          points={rows
-                            .map(
-                              (row, point) =>
-                                `${20 + (point * 260) / Math.max(rows.length - 1, 1)},${160 - (row.weight_kg / max) * 130}`,
-                            )
-                            .join(" ")}
-                        />
-                      );
-                    })}
-                </svg>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  {[...new Set(progressRows.map((row) => row.reps))]
-                    .sort((a, b) => a - b)
-                    .map((reps) => (
-                      <span
-                        key={reps}
-                        className="rounded-full bg-slate-100 px-2 py-1"
-                      >
-                        ● {reps} reps
-                      </span>
-                    ))}
-                </div>
-                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-700">
-                  {[...new Set(progressRows.map((row) => row.reps))]
-                    .sort((a, b) => a - b)
-                    .map((reps) => (
-                      <p key={reps} className="mb-1">
-                        <b>{reps} reps:</b>{" "}
-                        {progressRows
-                          .filter((row) => row.reps === reps)
-                          .map(
-                            (row) =>
-                              `${row.workout_date.slice(5)} · ${row.weight_kg} kg`,
-                          )
-                          .join(" → ")}
-                      </p>
-                    ))}
-                </div>
-              </section>
-            </div>
-          )}
           {card.sets.map((item) => {
             const rawSet = sets.find((set) => set.id === item.id)!;
             return editingSetId === item.id ? (
@@ -1422,6 +1408,17 @@ export default function TrainingPage() {
           ))}
         </section>
       ))}
+      {progressExercise && (
+        <GymProgressDialog
+          key={progressExercise}
+          exerciseName={progressExerciseName}
+          rows={progressRows}
+          loading={progressLoading}
+          error={progressError}
+          onClose={closeProgress}
+          returnFocusRef={progressTriggerRef}
+        />
+      )}
       {dailyExercises.length === 0 && (
         <button
           type="button"
