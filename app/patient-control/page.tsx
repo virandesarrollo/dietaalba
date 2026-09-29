@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, Dumbbell, HeartPulse, Scale, Users } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { PatientTrainingEvolution } from '@/components/PatientTrainingEvolution';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
@@ -161,15 +162,6 @@ export default function PatientControlPage() {
   const fat = (history?.health ?? []).flatMap((record) => record.body_fat_percentage === null ? [] : [{ date: record.recorded_at, value: record.body_fat_percentage }]);
   const pulse = (history?.health ?? []).flatMap((record) => record.pulse === null ? [] : [{ date: record.recorded_at, value: record.pulse }]);
   const tension = (history?.health ?? []).flatMap((record) => record.systolic === null ? [] : [{ date: record.recorded_at, value: record.systolic }]);
-  const workoutVolumeByDate = useMemo(() => {
-    const volumeByDate = new Map<string, number>();
-    for (const workout of history?.workouts ?? []) {
-      if (workout.weight_kg === null || workout.reps === null) continue;
-      const volume = workout.weight_kg * workout.reps;
-      volumeByDate.set(workout.date, (volumeByDate.get(workout.date) ?? 0) + volume);
-    }
-    return [...volumeByDate].sort(([left], [right]) => left.localeCompare(right)).map(([date, value]) => ({ date, value }));
-  }, [history]);
 
   if (loading) return <main className="theme-page flex min-h-screen items-center justify-center text-sm text-slate-500">Cargando control de pacientes…</main>;
   return <main className="theme-page min-h-screen text-slate-700">
@@ -182,7 +174,7 @@ export default function PatientControlPage() {
       {patientId && <>
         <div className="mb-5 flex items-center gap-3"><Activity className="text-rose-400" /><div><h2 className="text-xl font-bold text-slate-800">{selectedPatient?.full_name || selectedPatient?.email}</h2><p className="text-sm text-slate-500">Evolución registrada</p></div></div>
         {loadingHistory ? <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 shadow-sm">Cargando historial…</p> : history && loadedPatientId === patientId && <div className="space-y-8">
-          <section><div className="mb-4 flex items-center gap-2"><Dumbbell className="text-rose-400" size={20} /><h2 className="text-xl font-bold text-slate-800">Entrenamientos</h2></div><div className="rounded-3xl bg-white p-5 shadow-sm"><MetricChart title="Entrenamientos" values={workoutVolumeByDate} color="#6366f1" /><p className="mt-2 text-xs text-slate-500">Volumen por fecha (kg × repeticiones).</p><div className="mt-5 space-y-3">{history.workouts.length === 0 ? <p className="text-sm text-slate-500">No hay entrenamientos registrados.</p> : history.workouts.slice().reverse().map((workout, index) => <div key={`${workout.date}-${index}`} className="flex flex-wrap justify-between gap-2 border-t border-slate-100 pt-3 text-sm"><span className="font-semibold text-slate-700">{workout.exercise || 'Ejercicio'}</span><span>{formatDate(workout.date)} · {formatValue(workout.weight_kg, ' kg')} · {formatValue(workout.reps, ' rep.')}</span></div>)}</div></div></section>
+          <section><div className="mb-4 flex items-center gap-2"><Dumbbell className="text-rose-400" size={20} /><h2 className="text-xl font-bold text-slate-800">Entrenamientos</h2></div><PatientTrainingEvolution workouts={history.workouts} /></section>
           <section><div className="mb-4 flex items-center gap-2"><HeartPulse className="text-rose-400" size={20} /><h2 className="text-xl font-bold text-slate-800">Mediciones de salud</h2></div><div className="grid gap-5 md:grid-cols-2"><MetricChart title="Peso" values={weight} /><MetricChart title="Grasa corporal" values={fat} color="#f59e0b" /><MetricChart title="Tensión" values={tension} color="#8b5cf6" /><MetricChart title="Pulso" values={pulse} color="#10b981" /></div><div className="mt-5 rounded-3xl bg-white p-5 shadow-sm"><div className="mb-4 flex items-center gap-2"><Scale className="text-rose-400" size={20} /><h3 className="font-bold text-slate-800">Historial de mediciones</h3></div><div className="space-y-3">{history.health.length === 0 ? <p className="text-sm text-slate-500">No hay mediciones de salud registradas.</p> : history.health.slice().reverse().map((record, index) => <div key={`${record.recorded_at}-${index}`} className="grid gap-2 border-t border-slate-100 pt-3 text-sm sm:grid-cols-5"><span className="font-semibold">{formatDate(record.recorded_at)}</span><span>Peso: {formatValue(record.weight_kg, ' kg')}</span><span>Grasa corporal: {formatValue(record.body_fat_percentage, '%')}</span><span>Tensión: {record.systolic === null && record.diastolic === null ? '—' : `${formatValue(record.systolic)}/${formatValue(record.diastolic)}`}</span><span>Pulso: {formatValue(record.pulse, ' ppm')}</span></div>)}</div></div></section>
         </div>}
       </>}
