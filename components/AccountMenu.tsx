@@ -2,21 +2,26 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Settings } from 'lucide-react';
+import { CalendarDays, LogOut, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { PatientPreviewReturn } from '@/components/PatientPreviewReturn';
+import { madridDateString } from '@/lib/historical-date.js';
 
 type AccountMenuProps = {
   email?: string;
   canAccessSettings?: boolean;
+  canViewDaySchedule?: boolean;
+  scheduleDate?: string;
 };
 
-export function AccountMenu({ email = '', canAccessSettings }: AccountMenuProps) {
+export function AccountMenu({ email = '', canAccessSettings, canViewDaySchedule, scheduleDate }: AccountMenuProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [fetchedCanAccessSettings, setFetchedCanAccessSettings] = useState(false);
+  const [fetchedCanViewDaySchedule, setFetchedCanViewDaySchedule] = useState(false);
   const resolvedCanAccessSettings = canAccessSettings ?? fetchedCanAccessSettings;
+  const resolvedCanViewDaySchedule = canViewDaySchedule ?? fetchedCanViewDaySchedule;
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -38,9 +43,13 @@ export function AccountMenu({ email = '', canAccessSettings }: AccountMenuProps)
   }, [open]);
 
   useEffect(() => {
-    if (canAccessSettings !== undefined) return;
-    void supabase.rpc('get_my_features').then((result) => setFetchedCanAccessSettings(deriveFeatureCapabilities(normalizeFeatureRows(result.data)).canAccessSettings));
-  }, [canAccessSettings]);
+    if (canAccessSettings !== undefined && canViewDaySchedule !== undefined) return;
+    void supabase.rpc('get_my_features').then((result) => {
+      const capabilities = deriveFeatureCapabilities(normalizeFeatureRows(result.data));
+      setFetchedCanAccessSettings(capabilities.canAccessSettings);
+      setFetchedCanViewDaySchedule(capabilities.canViewDaySchedule);
+    });
+  }, [canAccessSettings, canViewDaySchedule]);
 
   function openSettings() {
     setOpen(false);
@@ -68,6 +77,11 @@ export function AccountMenu({ email = '', canAccessSettings }: AccountMenuProps)
       {open && (
         <div role="menu" className="theme-surface absolute right-0 top-12 z-50 min-w-48 overflow-hidden rounded-2xl border theme-border p-1.5 shadow-xl">
           <PatientPreviewReturn />
+          {resolvedCanViewDaySchedule && (
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); router.push(`/schedule?date=${scheduleDate ?? madridDateString()}`); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-rose-50">
+              <CalendarDays size={17} className="text-rose-400" /> Horarios
+            </button>
+          )}
           {resolvedCanAccessSettings && (
             <button
               type="button"

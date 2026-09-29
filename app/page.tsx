@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { AccountMenu } from '@/components/AccountMenu';
+import { WorkTimeCard } from '@/components/WorkTimeCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
 import { isHistoricalDate, isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date';
@@ -1478,6 +1479,8 @@ export default function Home() {
             <AccountMenu
               email={session.user.email ?? ''}
               canAccessSettings={canAccessSettings}
+              canViewDaySchedule={canViewDaySchedule}
+              scheduleDate={selectedDate}
             />
           </div>
         </div>
@@ -1507,7 +1510,6 @@ export default function Home() {
                 <ChevronRight size={20} />
               </button>
             </div>
-            {canViewDaySchedule && <button type="button" onClick={() => router.push(`/schedule?date=${selectedDate}`)} className="mt-4 w-full rounded-2xl border border-indigo-100 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-700 shadow-sm">Horarios</button>}
             {canTrackCalories && (
               <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
@@ -1518,6 +1520,7 @@ export default function Home() {
                 </span>
               </div>
             )}
+            {canViewDaySchedule && <WorkTimeCard key={`${session.user.id}:${selectedDate}`} date={selectedDate} userId={session.user.id} />}
           </>
         ) : (
           <div className="mt-2 mb-2">
