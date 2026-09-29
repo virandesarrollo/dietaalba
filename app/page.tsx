@@ -9,7 +9,6 @@ import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { AccountMenu } from '@/components/AccountMenu';
-import { DailyStepsCard } from '@/components/DailyStepsCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
 import { isHistoricalDate, isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date';
@@ -1508,22 +1507,13 @@ export default function Home() {
                 <ChevronRight size={20} />
               </button>
             </div>
-            {canTrackSteps && <DailyStepsCard
-              steps={dailySteps}
-              dailyGoal={dailyStepGoal}
-              input={stepInput}
-              readOnly={stepsReadOnly}
-              saving={savingSteps}
-              message={stepMessage}
-              onInputChange={setStepInput}
-              onSave={saveDailySteps}
-            />}
             {canViewDaySchedule && <button type="button" onClick={() => router.push(`/schedule?date=${selectedDate}`)} className="mt-4 w-full rounded-2xl border border-indigo-100 bg-white px-4 py-3 text-left text-sm font-semibold text-indigo-700 shadow-sm">Horarios</button>}
             {canTrackCalories && (
               <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
                 <span className="kcal-summary-copy">
-                  <strong className="kcal-summary-value">{totalDailyCalories} kcal consumidas</strong>
+                  <span className="kcal-summary-label">Kcal consumidas</span>
+                  <strong className="kcal-summary-value"><span className="kcal-summary-number">{totalDailyCalories}</span> <span className="kcal-summary-unit">kcal</span></strong>
                   <span className="kcal-summary-label">Comidas + picoteos + nocturnos</span>
                 </span>
               </div>

@@ -39,12 +39,13 @@ export function useViewCapabilities() {
         if (!isAuthCurrent(generation, userId, Boolean(rolesResult.error || featuresResult.error))) return;
         const roles = (rolesResult.data ?? []).map((row) => (row as { role_code: RoleCode }).role_code);
         const profile = profileResult.data as { is_sudo?: boolean } | null;
-        const { canAccessSettings, canTrackHealth, canTrackGymWorkouts, canManageGymWorkouts, canUsePatientFriends } = deriveFeatureCapabilities(
+        const { canAccessSettings, canTrackHealth, canTrackSteps, canTrackGymWorkouts, canManageGymWorkouts, canUsePatientFriends } = deriveFeatureCapabilities(
           normalizeFeatureRows(featuresResult.data),
         );
         setAvailableViews(deriveAvailableViews(deriveCapabilities(Boolean(profile?.is_sudo), roles), {
           canAccessSettings,
           canTrackHealth,
+          canTrackSteps,
           canTrackGymWorkouts,
           canManageGymWorkouts,
           canUsePatientFriends,
