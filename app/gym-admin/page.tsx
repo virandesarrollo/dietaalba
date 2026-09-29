@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowDown, ArrowUp, Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
+import { Dumbbell, Pencil, Plus, Save, X } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
@@ -195,33 +195,6 @@ export default function GymAdminPage() {
     }
   }
 
-  async function moveGroup(group: GymGroup, amount: -1 | 1) {
-    const visibleIndex = catalog.findIndex((item) => item.id === group.id);
-    const destinationGroup = catalog[visibleIndex + amount];
-    const index = groups.findIndex((item) => item.id === group.id);
-    const destination = groups.findIndex((item) => item.id === destinationGroup?.id);
-    if (visibleIndex < 0 || index < 0 || destination < 0) return;
-    const reordered = [...groups];
-    [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
-    const generation = authGenerationRef.current;
-    const userId = currentUserIdRef.current;
-    if (!userId || !isAuthCurrent(generation, userId)) return;
-    const mutationLock = mutationLockRef.current;
-    if (!mutationLock.tryAcquire()) return;
-    try {
-      setSavingKey(`move:${group.id}`); setMessage(null);
-      const result = await supabase.rpc('reorder_gym_exercise_groups', { p_group_ids: reordered.map((item) => item.id) });
-      if (!isAuthCurrent(generation, userId)) return;
-      if (result.error) reportWriteError(result.error, 'No se pudo reordenar el grupo.');
-      else if (await loadCatalog(generation, userId) && isAuthCurrent(generation, userId)) setMessage({ kind: 'success', text: 'Orden actualizado.' });
-    } catch {
-      if (isAuthCurrent(generation, userId)) setMessage({ kind: 'error', text: 'No se pudo reordenar el grupo.' });
-    } finally {
-      if (isAuthCurrent(generation, userId)) setSavingKey(null);
-      mutationLock.release();
-    }
-  }
-
   async function setGroupActive(group: GymGroup, active: boolean) {
     if (!(await confirmDialog({ title: `${active ? 'Activar' : 'Desactivar'} grupo`, message: `¿${active ? 'Activar' : 'Desactivar'} el grupo ${group.name}?`, confirmLabel: active ? 'Activar' : 'Desactivar', tone: active ? 'default' : 'danger' }))) return;
     const generation = authGenerationRef.current;
@@ -345,7 +318,7 @@ export default function GymAdminPage() {
         </label>
 
         <section aria-label="Grupos y ejercicios" className="space-y-3">
-          {catalog.map((group, index) => (
+          {catalog.map((group) => (
             <details key={group.id} className="theme-surface overflow-hidden rounded-3xl shadow-sm">
               <summary className="min-h-12 cursor-pointer px-5 py-4 font-bold text-slate-800">
                 {group.name}{!group.is_active && <span className="theme-muted ml-2 text-xs">Inactivo</span>}
@@ -359,9 +332,7 @@ export default function GymAdminPage() {
                     <button type="button" onClick={() => { setEditingGroupId(null); setGroupEditName(''); }} disabled={busy} aria-label="Cancelar edición del grupo" className="theme-border min-h-12 min-w-12 rounded-xl border"><X className="mx-auto" /></button>
                   </div>
                 )}
-                <div className="grid grid-cols-4 gap-2">
-                  <button type="button" onClick={() => void moveGroup(group, -1)} disabled={busy || index === 0} aria-label={`Mover ${group.name} arriba`} className="theme-border min-h-12 rounded-xl border disabled:opacity-40"><ArrowUp className="mx-auto" /></button>
-                  <button type="button" onClick={() => void moveGroup(group, 1)} disabled={busy || index === catalog.length - 1} aria-label={`Mover ${group.name} abajo`} className="theme-border min-h-12 rounded-xl border disabled:opacity-40"><ArrowDown className="mx-auto" /></button>
+                <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => editGroup(group)} disabled={busy} aria-label={`Editar ${group.name}`} className="theme-border min-h-12 rounded-xl border"><Pencil className="mx-auto" /></button>
                   <button type="button" onClick={() => void setGroupActive(group, !group.is_active)} disabled={busy} aria-label={`${group.is_active ? 'Desactivar' : 'Activar'} ${group.name}`} className="theme-border min-h-12 rounded-xl border text-xs font-semibold">{group.is_active ? 'Desactivar' : 'Activar'}</button>
                 </div>
