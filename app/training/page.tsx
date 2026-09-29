@@ -43,6 +43,7 @@ import {
 } from "@/lib/feature-permissions.js";
 import { madridDateString } from "@/lib/historical-date.js";
 import { buildWorkoutBlocks, type WorkoutSuperset } from "@/lib/gym-supersets.js";
+import { formatWorkoutShareText } from "@/lib/gym-workout-share.js";
 import { supabase } from "@/lib/supabase";
 import { advanceAuthIdentity } from "@/lib/view-capabilities-guard.js";
 
@@ -174,6 +175,10 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [shareFeedback, setShareFeedback] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
   const [progressExercise, setProgressExercise] = useState<string | null>(null);
   const [progressRows, setProgressRows] = useState<
     { workout_date: string; weight_kg: number; reps: number }[]
@@ -243,6 +248,7 @@ export default function TrainingPage() {
       setEditingSetId(null);
       setAppNavigationViews([]);
       setFeedback("");
+      setShareFeedback(null);
       setShowPicker(false);
       mutationTokenRef.current += 1;
       mutationLockRef.current = false;
@@ -308,6 +314,7 @@ export default function TrainingPage() {
       requestDate === workoutDate;
     async function load() {
       setLoading(true);
+      setShareFeedback(null);
       setShowSupersetPicker(false);
       setSupersetSelection([]);
       setShowCopyDialog(false);
@@ -424,6 +431,19 @@ export default function TrainingPage() {
   const blocks = useMemo(() => buildWorkoutBlocks(cards, supersets), [cards, supersets]);
   const unpairedCards = blocks.filter((block) => !block.supersetId).flatMap((block) => block.exercises);
   const readOnlySupersets = workoutDate < today;
+
+  async function shareWorkout() {
+    try {
+      const text = formatWorkoutShareText(formatWorkoutDate(workoutDate), blocks);
+      await navigator.clipboard.writeText(text);
+      setShareFeedback({ tone: "success", message: "Entrenamiento copiado." });
+    } catch {
+      setShareFeedback({
+        tone: "error",
+        message: "No se pudo copiar el entrenamiento.",
+      });
+    }
+  }
 
   async function saveSuperset(supersetId?: string) {
     if (!membership || mutationLockRef.current || readOnlySupersets || !supersetsAvailable) return;
@@ -1038,16 +1058,36 @@ export default function TrainingPage() {
           {feedback}
         </p>
       )}
-      {!readOnlySupersets && supersetsAvailable && unpairedCards.length >= 2 && (
-        <button
-          type="button"
-          disabled={saving}
-          aria-expanded={showSupersetPicker}
-          onClick={() => { setSupersetSelection([]); setShowSupersetPicker((current) => !current); }}
-          className="mb-4 min-h-12 w-full rounded-2xl bg-indigo-50 font-semibold text-indigo-700"
+      {shareFeedback && (
+        <p
+          role={shareFeedback.tone === "error" ? "alert" : "status"}
+          className={`mb-4 rounded-2xl p-3 ${shareFeedback.tone === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}
         >
-          Crear superserie
-        </button>
+          {shareFeedback.message}
+        </p>
+      )}
+      {cards.length > 0 && (
+        <div className="mb-4 flex gap-2">
+          {!readOnlySupersets && supersetsAvailable && unpairedCards.length >= 2 && (
+            <button
+              type="button"
+              disabled={saving}
+              aria-expanded={showSupersetPicker}
+              onClick={() => { setSupersetSelection([]); setShowSupersetPicker((current) => !current); }}
+              className="min-h-12 flex-1 rounded-2xl bg-indigo-50 font-semibold text-indigo-700"
+            >
+              + superserie
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={!supersetsAvailable}
+            onClick={() => void shareWorkout()}
+            className="min-h-12 flex-1 rounded-2xl bg-slate-100 font-semibold text-slate-800 disabled:opacity-40"
+          >
+            Compartir...
+          </button>
+        </div>
       )}
       {showSupersetPicker && (
         <form
