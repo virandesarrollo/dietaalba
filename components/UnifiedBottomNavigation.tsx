@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChartNoAxesCombined, ClipboardList, Dumbbell, HeartPulse, Salad, Settings, Users, UserRoundCog, LoaderCircle } from 'lucide-react';
-import { deriveAdminViews, deriveAppViews, type AppView } from '@/lib/authz.js';
+import { ChartNoAxesCombined, ClipboardList, Dumbbell, HeartPulse, Salad, Users, UserRoundCog, LoaderCircle } from 'lucide-react';
+import { deriveAdminViews, deriveAppViews } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
 const destinations = {
@@ -12,7 +12,6 @@ const destinations = {
   training: { label: 'Entrenamiento', path: '/training', icon: Dumbbell },
   health: { label: 'Salud', path: '/health', icon: HeartPulse },
   friends: { label: 'Amigos', path: '/friends', icon: Users },
-  settings: { label: 'Ajustes', path: '/settings', icon: Settings },
   users: { label: 'Usuarios', path: '/users', icon: UserRoundCog },
   admin: { label: 'Dietas', path: '/admin', icon: ClipboardList },
   gymAdmin: { label: 'Gimnasio', path: '/gym-admin', icon: Dumbbell },
@@ -31,7 +30,8 @@ export function UnifiedBottomNavigation() {
   }, [pathname, pendingPath]);
 
   if (!availableViews || pathname === '/patient-preview') return null;
-  const views: AppView[] = [...deriveAppViews(availableViews), ...deriveAdminViews(availableViews)];
+  const views = [...deriveAppViews(availableViews), ...deriveAdminViews(availableViews)]
+    .filter((view): view is keyof typeof destinations => view !== 'settings');
 
   return <>
     <nav aria-label="Navegación de la app" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/60 bg-white/90 px-2 pt-2 shadow-lg backdrop-blur-xl" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
