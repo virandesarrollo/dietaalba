@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, LogOut, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
-import { AppMobileNavigation } from '@/components/AppMobileNavigation';
-import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { normalizeDailyStepRow, parseStepGoal } from '@/lib/daily-steps.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { madridDateString } from '@/lib/historical-date.js';
@@ -32,13 +30,11 @@ export default function SettingsPage() {
   const [canAccessSettings, setCanAccessSettings] = useState(false);
   const [canChangeTheme, setCanChangeTheme] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
-  const [canManageGymWorkouts, setCanManageGymWorkouts] = useState(false);
   const [canTrackSteps, setCanTrackSteps] = useState(false);
   const [canTrackWater, setCanTrackWater] = useState(false);
   const [canTrackNightBinges, setCanTrackNightBinges] = useState(false);
   const [nightBingeStartTime, setNightBingeStartTime] = useState('22:00');
   const [nightBingeMessage, setNightBingeMessage] = useState<string | null>(null);
-  const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState('1');
   const [savingGymStep, setSavingGymStep] = useState(false);
   const [gymStepMessage, setGymStepMessage] = useState<string | null>(null);
@@ -60,24 +56,20 @@ export default function SettingsPage() {
   const draftColors = { ...colors, ...colorEdits };
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
-  const appNavigationViews = deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), { canAccessSettings, canTrackGymWorkouts, canManageGymWorkouts }));
   const hasFunctionalSettings = canTrackGymWorkouts || canTrackSteps || canTrackWater || canTrackNightBinges;
 
   useEffect(() => {
     let active = true;
     let receivedAuthEvent = false;
     const clearIdentityState = () => {
-      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanManageGymWorkouts(false); setCanTrackWater(false); setCanTrackSteps(false);
-      setNavigationRoles([]); setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setStepGoal('10000'); setStepGoalMessage(null); setSavingStepGoal(false); setStepGoalLoadError(false); setLoadingStepGoal(true); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
+      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanTrackWater(false); setCanTrackSteps(false);
+      setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setStepGoal('10000'); setStepGoalMessage(null); setSavingStepGoal(false); setStepGoalLoadError(false); setLoadingStepGoal(true); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
     };
     async function checkAccess(generation: number, userId: string, requestGeneration: number) {
       const isCurrent = () => active && generation === authGenerationRef.current && userId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current;
       try {
 
-      const [featuresResult, membershipResult] = await Promise.all([
-        supabase.rpc('get_my_features'),
-        supabase.from('group_memberships').select('user_roles(role_code)').eq('user_id', userId).eq('status', 'active').maybeSingle(),
-      ]);
+      const featuresResult = await supabase.rpc('get_my_features');
       const { data, error: featuresError } = featuresResult;
       if (!isCurrent()) return;
       const capabilities = featuresError
@@ -90,12 +82,9 @@ export default function SettingsPage() {
       setCanAccessSettings(capabilities.canAccessSettings);
       setCanChangeTheme(capabilities.canChangeTheme);
       setCanTrackGymWorkouts(capabilities.canTrackGymWorkouts);
-      setCanManageGymWorkouts(capabilities.canManageGymWorkouts);
       setCanTrackWater(capabilities.canTrackWater);
       setCanTrackNightBinges(capabilities.canTrackNightBinges);
       setCanTrackSteps(capabilities.canTrackSteps);
-      const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
-      setNavigationRoles(membershipResult.error ? [] : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []));
       if (capabilities.canTrackGymWorkouts) {
         const { data: step } = await supabase.rpc('get_my_gym_weight_step');
         if (isCurrent() && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
@@ -402,7 +391,6 @@ export default function SettingsPage() {
           <button type="button" onClick={() => void saveMorningPush()} className="mt-4 rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Guardar aviso</button>{morningPushMessage && <p role="status" className="mt-3 text-sm">{morningPushMessage}</p>}
         </section>
       </div>
-      <AppMobileNavigation current="settings" resolvedViews={appNavigationViews} />
     </main>
   );
 }

@@ -18,9 +18,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { isHistoricalDate, madridDateString } from '@/lib/historical-date';
-import { AdminNavigation } from '@/components/AdminNavigation';
-import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
-import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
+import { deriveCapabilities, type RoleCode } from '@/lib/authz.js';
+import { createMutationLock } from '@/lib/feature-permissions.js';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
 import { groupMealOptions, MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
@@ -112,7 +111,6 @@ export default function AdminPage() {
   const [planLoadError, setPlanLoadError] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [adminViews, setAdminViews] = useState<AdminView[]>([]);
   const planContext = planContextKey(selectedPatientId, selectedDate);
   const isPlanReady = loadedPlanContext === planContext;
   const selectionRef = useRef({ patientId: selectedPatientId, date: selectedDate });
@@ -171,10 +169,7 @@ export default function AdminPage() {
         return;
       }
 
-      const [rolesResult, featuresResult] = await Promise.all([
-        supabase.from('user_roles').select('role_code').eq('membership_id', membership.id),
-        supabase.rpc('get_my_features'),
-      ]);
+      const rolesResult = await supabase.from('user_roles').select('role_code').eq('membership_id', membership.id);
       const { data: roleRows, error: rolesError } = rolesResult;
 
       if (!isAuthCurrent(generation, userId)) return;
@@ -190,9 +185,6 @@ export default function AdminPage() {
 
       const roles = (roleRows ?? []).map((row) => (row as UserRole).role_code);
       const capabilities = deriveCapabilities(Boolean(ownProfile.is_sudo), roles);
-      const featureCapabilities = deriveFeatureCapabilities(
-        featuresResult.error ? [] : normalizeFeatureRows(featuresResult.data),
-      );
 
       if (!capabilities.canOpenDietAdmin) {
         router.replace('/');
@@ -211,9 +203,6 @@ export default function AdminPage() {
 
       if (!isAuthCurrent(generation, userId)) return;
       setCurrentProfile(ownProfile);
-      setAdminViews(deriveAdminViews(deriveAvailableViews(capabilities, {
-        canManageGymWorkouts: featureCapabilities.canManageGymWorkouts,
-      })));
       if (patientsError) {
         setMessage({
           type: 'error',
@@ -249,7 +238,7 @@ export default function AdminPage() {
       requestGenerationRef.current += 1;
       mutationLockRef.current = createMutationLock();
       setCurrentProfile(null); setProfiles([]); setSelectedPatientId(''); setSelectedDate(madridDateString());
-      setDrafts(emptyDrafts()); setMealGroups([]); setAdminViews([]); setAccessError(null); setMessage(null);
+      setDrafts(emptyDrafts()); setMealGroups([]); setAccessError(null); setMessage(null);
       setImportOpen(false); setImportRefreshKey(0); setPlanRetryKey(0); setSaving(false); setLoadingPlan(false);
       setLoadedPlanContext(null); setPlanLoadError(false);
       setLoading(Boolean(userId));
@@ -477,7 +466,7 @@ export default function AdminPage() {
   return (
     <main className="theme-page min-h-screen text-slate-700">
       <div className="lg:flex" inert={importOpen ? true : undefined} aria-hidden={importOpen}>
-      <aside className="border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:inset-y-0 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
+      <aside className="border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:top-0 lg:bottom-20 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
         <div className="flex h-full flex-col">
           <div className="mb-7">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">Panel profesional</p>
@@ -526,7 +515,6 @@ export default function AdminPage() {
           </section>
 
           <nav className="mt-6 space-y-2 border-t border-slate-100 pt-5">
-            <AdminNavigation current="admin" resolvedViews={adminViews} />
             <button
               type="button"
               onClick={() => void logout()}

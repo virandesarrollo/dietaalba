@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Flame, UtensilsCrossed } from 'lucide-react';
-import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { supabase } from '@/lib/supabase';
 import { getChartBackground, getDayBarMetrics, normalizeWeeklyDay, summarizeWeeklyDays, type WeeklyDay } from '@/lib/weekly-self-control';
 
@@ -74,7 +73,6 @@ export default function SelfControlPage() {
           </section>
         </>}
       </section>
-      <AppMobileNavigation current="patient" />
     </main>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2, Users } from 'lucide-react';
-import { AppMobileNavigation } from '@/components/AppMobileNavigation';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import {
   challengedFriendIdsForWeek as challengedFriendIdsForWeekHelper,
@@ -218,7 +217,6 @@ export default function FriendsPage() {
           </div>
         ))}
       </section>
-      <AppMobileNavigation current="friends" />
     </main>
   );
 }

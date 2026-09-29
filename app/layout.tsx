@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { OfflineSupport } from "@/components/OfflineSupport";
+import { UnifiedBottomNavigation } from "@/components/UnifiedBottomNavigation";
 
 export const metadata: Metadata = {
   title: "AGAFIT",
@@ -29,7 +30,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="font-sans antialiased"><OfflineSupport /><ThemeProvider><ConfirmDialogProvider>{children}</ConfirmDialogProvider></ThemeProvider></body>
+      <body className="font-sans antialiased"><OfflineSupport /><ThemeProvider><ConfirmDialogProvider>{children}<UnifiedBottomNavigation /></ConfirmDialogProvider></ThemeProvider></body>
     </html>
   );
 }

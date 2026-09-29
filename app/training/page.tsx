@@ -21,15 +21,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { AppMobileNavigation } from "@/components/AppMobileNavigation";
 import { AccountMenu } from "@/components/AccountMenu";
 import { GymProgressDialog } from "@/components/GymProgressDialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import {
-  deriveAppViews,
-  deriveAvailableViews,
-  deriveCapabilities,
-  type PersonalAppView,
   type RoleCode,
 } from "@/lib/authz.js";
 import {
@@ -189,9 +184,6 @@ export default function TrainingPage() {
   const [progressRows, setProgressRows] = useState<
     { workout_date: string; weight_kg: number; reps: number }[]
   >([]);
-  const [appNavigationViews, setAppNavigationViews] = useState<
-    PersonalAppView[]
-  >([]);
   const pickerDialogRef = useRef<HTMLElement>(null);
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const pickerWasOpen = useRef(false);
@@ -254,7 +246,6 @@ export default function TrainingPage() {
       setSets([]);
       setDraftExerciseCode(null);
       setEditingSetId(null);
-      setAppNavigationViews([]);
       setFeedback("");
       setShareFeedback(null);
       progressRequestRef.current += 1;
@@ -407,14 +398,6 @@ export default function TrainingPage() {
               .eq("workout_date", requestDate),
           ]);
         if (!isCurrent()) return;
-        setAppNavigationViews(
-          deriveAppViews(
-            deriveAvailableViews(
-              deriveCapabilities(false, roles),
-              featureCapabilities,
-            ),
-          ),
-        );
         setMembership(activeMembership);
         setUserId(activeUserId);
         setCatalog((catalogResult.data ?? []) as Exercise[]);
@@ -1565,10 +1548,6 @@ export default function TrainingPage() {
           </section>
         </div>
       )}
-      <AppMobileNavigation
-        current="training"
-        resolvedViews={appNavigationViews}
-      />
     </main>
   );
 }

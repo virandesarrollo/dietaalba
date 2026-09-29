@@ -8,8 +8,6 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
-import { AppMobileNavigation } from '@/components/AppMobileNavigation';
-import { deriveAppViews, deriveAvailableViews, deriveCapabilities, type RoleCode } from '@/lib/authz.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { DailyStepsCard } from '@/components/DailyStepsCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
@@ -107,9 +105,7 @@ export default function Home() {
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
-  const [navigationRoles, setNavigationRoles] = useState<RoleCode[]>([]);
   const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps, canViewDaySchedule } = featureCapabilities;
-  const appNavigationViews = useMemo(() => deriveAppViews(deriveAvailableViews(deriveCapabilities(false, navigationRoles), featureCapabilities)), [featureCapabilities, navigationRoles]);
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
   const isHistoricalDay = isHistoricalDate(selectedDate);
@@ -253,7 +249,6 @@ export default function Home() {
       setShowLoadDayModal(false);
       setLoadingSourceDays(false);
       setFeatureCapabilities(deriveFeatureCapabilities([]));
-      setNavigationRoles([]);
       setCurrentTab('plan');
       setActiveRecipe(null);
       setSavingReview(false);
@@ -348,10 +343,7 @@ export default function Home() {
 
     commit(() => setLoading(true));
 
-    const [featuresResult, membershipResult] = await Promise.all([
-      supabase.rpc('get_my_features'),
-      supabase.from('group_memberships').select('user_roles(role_code)').eq('user_id', userId).eq('status', 'active').maybeSingle(),
-    ]);
+    const featuresResult = await supabase.rpc('get_my_features');
     const { data: featuresData, error: featuresError } = featuresResult;
     if (!requestGuard.isCurrent(request)) return;
     const nextCapabilities = featuresError
@@ -359,11 +351,6 @@ export default function Home() {
       : deriveFeatureCapabilities(normalizeFeatureRows(featuresData));
 
     commit(() => setFeatureCapabilities(nextCapabilities));
-    const membership = membershipResult.data as { user_roles?: Array<{ role_code?: RoleCode }> } | null;
-    const nextNavigationRoles = membershipResult.error
-      ? []
-      : (membership?.user_roles ?? []).flatMap((row) => row.role_code ? [row.role_code] : []);
-    commit(() => setNavigationRoles(nextNavigationRoles));
     commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
     commit(() => setLoadingFeatures(false));
 
@@ -2246,9 +2233,6 @@ export default function Home() {
         </div>
       )}
 
-      <div inert={activeDialog ? true : undefined} aria-hidden={activeDialog ? true : undefined}>
-        <AppMobileNavigation current="patient" resolvedViews={appNavigationViews} />
-      </div>
     </main>
   );
 }
