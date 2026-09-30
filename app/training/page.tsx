@@ -44,6 +44,7 @@ import { buildWorkoutBlocks, type WorkoutSuperset } from "@/lib/gym-supersets.js
 import { formatWorkoutShareText } from "@/lib/gym-workout-share.js";
 import { supabase } from "@/lib/supabase";
 import { advanceAuthIdentity } from "@/lib/view-capabilities-guard.js";
+import { withAbortTimeout } from "@/lib/abort-timeout.js";
 
 type Membership = { id: string; group_id: string };
 type ExerciseGroup = {
@@ -159,6 +160,9 @@ export default function TrainingPage() {
   const [sets, setSets] = useState<WorkoutSet[]>([]);
   const [gymWeightStep, setGymWeightStep] = useState(1);
   const [showPicker, setShowPicker] = useState(false);
+  const [pendingExerciseCode, setPendingExerciseCode] = useState<string | null>(null);
+  const [pickerStatus, setPickerStatus] = useState("");
+  const [pickerError, setPickerError] = useState("");
   const [copySources, setCopySources] = useState<string[]>([]);
   const [selectedCopySource, setSelectedCopySource] =
     useState<CopySource | null>(null);
@@ -255,6 +259,9 @@ export default function TrainingPage() {
       setProgressLoading(false);
       setProgressError("");
       setShowPicker(false);
+      setPendingExerciseCode(null);
+      setPickerStatus("");
+      setPickerError("");
       mutationTokenRef.current += 1;
       mutationLockRef.current = false;
       setSaving(false);
@@ -515,20 +522,31 @@ export default function TrainingPage() {
     const mutationUserId = currentUserIdRef.current;
     const mutationGeneration = workoutGenerationRef.current;
     const mutationDate = workoutDate;
+    setPendingExerciseCode(exercise.code);
+    setPickerStatus("Añadiendo ejercicio… Espera a que se confirme.");
+    setPickerError("");
+    setFeedback("");
     setSaving(true);
     try {
-      const result = await supabase
+      let savedExercise: DailyExercise | null = null;
+      try {
+        const result = await withAbortTimeout(12_000, (signal) => supabase
         .from("gym_workout_exercises")
         .insert({
           user_id: userId,
           group_id: membership.group_id,
           exercise_code: exercise.code,
-          workout_date: workoutDate,
+          workout_date: mutationDate,
         })
         .select(
           "id, exercise_code, exercise_name_snapshot, position, created_at",
         )
-        .single();
+        .single()
+        .abortSignal(signal)) as { data: DailyExercise | null; error: unknown };
+        if (!result.error && result.data) savedExercise = result.data;
+      } catch {
+        // La petición puede haberse guardado aunque se pierda la respuesta.
+      }
       if (
         authGeneration !== authGenerationRef.current ||
         mutationUserId !== currentUserIdRef.current ||
@@ -536,16 +554,53 @@ export default function TrainingPage() {
         mutationDate !== workoutDate
       )
         return;
-      if (result.error || !result.data)
-        setFeedback("No se pudo añadir el ejercicio.");
+      if (!savedExercise) {
+        setPickerStatus("Comprobando si se añadió el ejercicio…");
+        try {
+          const confirmation = await withAbortTimeout(5_000, (signal) => supabase
+            .from("gym_workout_exercises")
+            .select("id, exercise_code, exercise_name_snapshot, position, created_at")
+            .eq("user_id", userId)
+            .eq("group_id", membership.group_id)
+            .eq("workout_date", mutationDate)
+            .eq("exercise_code", exercise.code)
+            .abortSignal(signal)
+            .maybeSingle()) as { data: DailyExercise | null; error: unknown };
+          if (!confirmation.error && confirmation.data) savedExercise = confirmation.data;
+        } catch {
+          // Sin conexión tampoco se puede confirmar el resultado.
+        }
+      }
+      if (
+        authGeneration !== authGenerationRef.current ||
+        mutationUserId !== currentUserIdRef.current ||
+        mutationGeneration !== workoutGenerationRef.current ||
+        mutationDate !== workoutDate
+      )
+        return;
+      const confirmedExercise = savedExercise;
+      if (!confirmedExercise) {
+        setPickerError("No se pudo confirmar si se añadió. Comprueba el entrenamiento antes de reintentar.");
+        setFeedback("No se pudo confirmar si se añadió. Comprueba el entrenamiento antes de reintentar.");
+      }
       else {
-        setDailyExercises((value) => [...value, result.data as DailyExercise]);
+        setDailyExercises((current: DailyExercise[]) => current.some((value: DailyExercise) => value.id === confirmedExercise.id)
+          ? current : [...current, confirmedExercise]);
         setShowPicker(false);
+      }
+    } catch {
+      if (authGeneration === authGenerationRef.current &&
+        mutationUserId === currentUserIdRef.current &&
+        mutationGeneration === workoutGenerationRef.current) {
+        setPickerError("No se pudo añadir el ejercicio. Comprueba la conexión e inténtalo de nuevo.");
+        setFeedback("No se pudo añadir el ejercicio. Comprueba la conexión e inténtalo de nuevo.");
       }
     } finally {
       if (mutationToken === mutationTokenRef.current) {
         mutationLockRef.current = false;
         setSaving(false);
+        setPendingExerciseCode(null);
+        setPickerStatus("");
       }
     }
   }
@@ -1415,10 +1470,11 @@ export default function TrainingPage() {
       <button
         ref={pickerTriggerRef}
         type="button"
+        disabled={Boolean(pendingExerciseCode)}
         className="min-h-14 w-full rounded-2xl bg-slate-800 text-white"
-        onClick={() => setShowPicker(true)}
+        onClick={() => { setPickerError(""); setShowPicker(true); }}
       >
-        <Plus className="inline" /> Añadir ejercicio
+        <Plus className="inline" /> {pendingExerciseCode ? "Añadiendo ejercicio…" : "Añadir ejercicio"}
       </button>
       {showPicker && (
         <div className="fixed inset-0 z-50 bg-slate-950/30">
@@ -1444,6 +1500,8 @@ export default function TrainingPage() {
                 <X />
               </button>
             </div>
+            {pendingExerciseCode && <p role="status" className="my-3 rounded-2xl bg-indigo-50 p-3 text-sm text-indigo-700">{pickerStatus}</p>}
+            {pickerError && <p role="alert" className="my-3 rounded-2xl bg-red-50 p-3 text-sm text-red-700">{pickerError}</p>}
             {availableExerciseGroups.map((group) => (
               <details key={group.code} className="border-b">
                 <summary className="flex min-h-12 cursor-pointer items-center font-semibold">
@@ -1456,7 +1514,7 @@ export default function TrainingPage() {
                     className="min-h-12 w-full pl-4 text-left"
                     onClick={() => void addExercise(exercise as Exercise)}
                   >
-                    {exercise.name}
+                    {pendingExerciseCode === exercise.code ? "Añadiendo…" : exercise.name}
                   </button>
                 ))}
               </details>
