@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { formatDailyFoodShare } from '@/lib/daily-food-share.js';
+import { rankSourceDays } from '@/lib/source-day-options.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
@@ -163,6 +164,7 @@ export default function Home() {
   const [availableSourceDays, setAvailableSourceDays] = useState<SourceDay[]>([]);
   const [loadingSourceDays, setLoadingSourceDays] = useState<boolean>(false);
   const [loadDayMode, setLoadDayMode] = useState<'copy' | 'swap'>('copy');
+  const visibleSourceDays = rankSourceDays(availableSourceDays, selectedDate, loadDayMode, madridDateString());
   const [keepCompletedMeals, setKeepCompletedMeals] = useState<boolean>(true);
   const [applyingDayChange, setApplyingDayChange] = useState<boolean>(false);
 
@@ -1215,25 +1217,25 @@ export default function Home() {
     setAvailableSourceDays([]);
     setSelectedSourceDate('');
     setShowLoadDayModal(true);
-    const { data, error } = await supabase
-      .from('daily_plan')
-      .select('*')
-      .eq('user_id', userId)
-      .neq('date', selectedDate)
-      .order('date', { ascending: false });
+    const [futureResult, pastResult] = await Promise.all([
+      supabase.from('daily_plan').select('*').eq('user_id', userId).neq('date', selectedDate)
+        .gte('date', selectedDate).order('date', { ascending: true }),
+      supabase.from('daily_plan').select('*').eq('user_id', userId).neq('date', selectedDate)
+        .lt('date', selectedDate).order('date', { ascending: false }),
+    ]);
     if (!sourceDaysGuard.isCurrent(request)) return;
 
-    if (error) {
+    if (futureResult.error || pastResult.error) {
       setAvailableSourceDays([]);
       setSelectedSourceDate('');
     } else {
       const grouped = new Map<string, Meal[]>();
-      for (const meal of (data ?? []) as Meal[]) {
+      for (const meal of [...(futureResult.data ?? []), ...(pastResult.data ?? [])] as Meal[]) {
         grouped.set(meal.date, [...(grouped.get(meal.date) ?? []), meal]);
       }
       const days = Array.from(grouped, ([date, dayMeals]) => ({ date, meals: sortMealOptions(dayMeals) }));
       setAvailableSourceDays(days);
-      setSelectedSourceDate(days[0]?.date ?? '');
+      setSelectedSourceDate(rankSourceDays(days, selectedDate, loadDayMode, madridDateString())[0]?.date ?? '');
     }
     setLoadingSourceDays(false);
   };
@@ -2132,7 +2134,7 @@ export default function Home() {
                 <div>
                   <h3 id="load-day-dialog-title" className="text-sm font-semibold text-slate-800">Menú de otro día</h3>
                   <p className="text-[11px] text-slate-400">
-                    Día actual: <span className="font-medium text-slate-600 capitalize">{parseDateString(selectedDate).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })}</span>
+                    Día actual: <span className="font-medium text-slate-600 capitalize">{parseDateString(selectedDate).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
                   </p>
                 </div>
               </div>
@@ -2146,7 +2148,8 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100/80 rounded-2xl mb-4 text-xs font-medium">
               <button
                 type="button"
-                onClick={() => setLoadDayMode('copy')}
+                disabled={loadingSourceDays}
+                onClick={() => { setLoadDayMode('copy'); setSelectedSourceDate(rankSourceDays(availableSourceDays, selectedDate, 'copy', madridDateString())[0]?.date ?? ''); }}
                 className={`py-2 px-3 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
                   loadDayMode === 'copy'
                     ? 'bg-white text-pink-600 shadow-sm font-semibold'
@@ -2157,7 +2160,8 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setLoadDayMode('swap')}
+                disabled={loadingSourceDays}
+                onClick={() => { setLoadDayMode('swap'); setSelectedSourceDate(rankSourceDays(availableSourceDays, selectedDate, 'swap', madridDateString())[0]?.date ?? ''); }}
                 className={`py-2 px-3 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 ${
                   loadDayMode === 'swap'
                     ? 'bg-white text-purple-600 shadow-sm font-semibold'
@@ -2179,12 +2183,12 @@ export default function Home() {
               {loadingSourceDays && (
                 <p className="rounded-2xl bg-slate-50 p-4 text-center text-xs text-slate-400">Cargando tus días…</p>
               )}
-              {!loadingSourceDays && availableSourceDays.length === 0 && (
+              {!loadingSourceDays && visibleSourceDays.length === 0 && (
                 <p className="rounded-2xl bg-slate-50 p-4 text-center text-xs text-slate-400">
-                  No tienes otros días con comidas para cargar.
+                  {loadDayMode === 'swap' ? 'No tienes otros días desde hoy con comidas para intercambiar.' : 'No tienes otros días con comidas para cargar.'}
                 </p>
               )}
-              {availableSourceDays.map((dayData) => {
+              {visibleSourceDays.map((dayData) => {
                 const isSelected = selectedSourceDate === dayData.date;
                 const dayGroups = groupMealOptions(dayData.meals);
                 const lunchTitles = (dayGroups.ALMUERZO ?? []).map(meal => meal.title).join(' / ');
@@ -2250,7 +2254,7 @@ export default function Home() {
               ) : (
                 <>
                   <Sparkles size={14} />
-                  <span>{loadDayMode === 'copy' ? 'Cargar este menú' : 'Intercambiar con este día'}</span>
+                      <span>{loadDayMode === 'copy' ? 'Cargar este menú' : selectedSourceDate ? `Intercambiar con ${parseDateString(selectedSourceDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Intercambiar con este día'}</span>
                 </>
               )}
             </button>
