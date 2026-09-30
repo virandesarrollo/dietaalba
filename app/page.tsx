@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
+import { formatDailyFoodShare } from '@/lib/daily-food-share.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
@@ -146,6 +147,10 @@ export default function Home() {
   const nightBingeCalories = useMemo(() => nightBingeLogs.reduce((total, log) => total + (log.kcal ?? 0), 0), [nightBingeLogs]);
   const totalDailyCalories = completedCalories + snackCalories + nightBingeCalories;
   const calorieGoalKcal = calorieGoalByDate?.date === selectedDate ? calorieGoalByDate.value : null;
+  const dailyFoodShareText = useMemo(
+    () => formatDailyFoodShare({ date: selectedDate, meals, snacks, nightBingeLogs, includeCalories: canTrackCalories }),
+    [selectedDate, meals, snacks, nightBingeLogs, canTrackCalories],
+  );
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
   const [planRefreshRequired, setPlanRefreshRequired] = useState(false);
@@ -1391,13 +1396,14 @@ export default function Home() {
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        document.execCommand('copy');
+        if (!document.execCommand('copy')) throw new Error('No se pudo copiar');
         document.body.removeChild(textArea);
       }
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2500);
     } catch (err) {
       console.error('Error al copiar:', err);
+      setPlanError('No se pudo copiar al portapapeles.');
     }
   };
 
@@ -1467,7 +1473,9 @@ export default function Home() {
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl text-xs font-medium shadow-xl flex items-center gap-2 border border-pink-500/30 animate-in fade-in slide-in-from-top-3">
           <CheckCheck size={16} className="text-pink-400" />
           <span>
-            {copiedKey === 'all' 
+            {copiedKey === 'daily_food'
+              ? 'Resumen del día copiado al portapapeles.'
+              : copiedKey === 'all' 
               ? '¡Informe completo copiado! Listo para WhatsApp 💖' 
               : copiedKey === 'day_applied'
                 ? '¡Menú del día actualizado correctamente! ✨'
@@ -1828,6 +1836,15 @@ export default function Home() {
 
       {currentTab === 'plan' && canViewDaySchedule && workDayOff.date === selectedDate && workDayOff.off && (
         <div className="px-5"><WorkTimeCard key={`${session.user.id}:${selectedDate}`} date={selectedDate} userId={session.user.id} onDayOffChange={handleWorkDayOffChange} /></div>
+      )}
+
+      {currentTab === 'plan' && (
+        <div className="px-5 mt-5">
+          <button type="button" onClick={() => void copyToClipboard(dailyFoodShareText, 'daily_food')} disabled={loading || planRefreshRequired} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-100 px-4 font-semibold text-emerald-900 shadow-sm disabled:opacity-40">
+            {copiedKey === 'daily_food' ? <CheckCheck size={18} /> : <Copy size={18} />}
+            {copiedKey === 'daily_food' ? 'Copiado al portapapeles' : 'Compartir lo comido'}
+          </button>
+        </div>
       )}
 
       {/* VISTA 2: APARTADO DE NOTAS */}
