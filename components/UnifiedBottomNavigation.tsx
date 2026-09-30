@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChartNoAxesCombined, ClipboardList, Dumbbell, HeartPulse, Salad, Users, UserRoundCog, LoaderCircle } from 'lucide-react';
-import { deriveAdminViews, deriveAppViews } from '@/lib/authz.js';
+import { Dumbbell, HeartPulse, Salad, Users, LoaderCircle } from 'lucide-react';
+import { deriveAppViews } from '@/lib/authz.js';
 import { useViewCapabilities } from '@/components/useViewCapabilities';
 
 const destinations = {
@@ -12,10 +12,6 @@ const destinations = {
   training: { label: 'Entrenamiento', path: '/training', icon: Dumbbell },
   health: { label: 'Salud', path: '/health', icon: HeartPulse },
   friends: { label: 'Amigos', path: '/friends', icon: Users },
-  users: { label: 'Usuarios', path: '/users', icon: UserRoundCog },
-  admin: { label: 'Dietas', path: '/admin', icon: ClipboardList },
-  gymAdmin: { label: 'Gimnasio', path: '/gym-admin', icon: Dumbbell },
-  patientControl: { label: 'Pacientes', path: '/patient-control', icon: ChartNoAxesCombined },
 } as const;
 
 export function UnifiedBottomNavigation() {
@@ -30,7 +26,7 @@ export function UnifiedBottomNavigation() {
   }, [pathname, pendingPath]);
 
   if (!availableViews || pathname === '/patient-preview') return null;
-  const views = [...deriveAppViews(availableViews), ...deriveAdminViews(availableViews)]
+  const views = deriveAppViews(availableViews)
     .filter((view): view is keyof typeof destinations => view !== 'settings');
 
   return <>

@@ -24,6 +24,7 @@ import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin-plan.js';
 import { groupMealOptions, MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
 import { DietImportWizard } from '@/components/DietImportWizard';
+import { AccountMenu } from '@/components/AccountMenu';
 
 type Profile = {
   id: string;
@@ -466,14 +467,15 @@ export default function AdminPage() {
   return (
     <main className="theme-page min-h-screen text-slate-700">
       <div className="lg:flex" inert={importOpen ? true : undefined} aria-hidden={importOpen}>
-      <aside className="border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:top-0 lg:bottom-20 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
+      <aside className="relative z-50 border-b border-rose-100 bg-white/90 px-5 py-6 shadow-sm backdrop-blur lg:fixed lg:top-0 lg:bottom-20 lg:left-0 lg:w-80 lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
         <div className="flex h-full flex-col">
           <div className="mb-7">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">Panel profesional</p>
             <h1 className="mt-2 text-2xl font-bold text-slate-800">AGAFIT · Administración</h1>
-            <div className="mt-4 rounded-2xl bg-rose-50 p-4">
-              <p className="font-semibold text-slate-700">{currentProfile?.full_name || 'Usuario'}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">{currentProfile?.email}</p>
+            <div className="mt-4 flex items-start justify-between gap-3 rounded-2xl bg-rose-50 p-4">
+              <div className="min-w-0"><p className="font-semibold text-slate-700">{currentProfile?.full_name || 'Usuario'}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{currentProfile?.email}</p></div>
+              <AccountMenu email={currentProfile?.email || ''} />
             </div>
           </div>
 
