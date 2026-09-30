@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { advanceAuthIdentity } from '@/lib/view-capabilities-guard.js';
 import { getOfflineDietStore } from '@/lib/offline-diet.js';
 import { formatDailyFoodShare } from '@/lib/daily-food-share.js';
+import { isNightBingeTime } from '@/lib/night-binge-time.js';
 import { rankSourceDays } from '@/lib/source-day-options.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
@@ -112,6 +113,7 @@ export default function Home() {
   const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps, canViewDaySchedule } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
+  const [nightClock, setNightClock] = useState(() => new Date());
   const isHistoricalDay = isHistoricalDate(selectedDate);
   const isOutsidePersonalCorrectionWindow = isOutsideCorrectionWindow(selectedDate);
   const isOutsidePersonalMealMutationWindow = isOutsidePersonalCorrectionWindow || selectedDate > madridDateString();
@@ -210,10 +212,10 @@ export default function Home() {
     planMutationRevisionRef.current += 1;
   }
 
-  function resetPlanMutationLock() {
+  const resetPlanMutationLock = useCallback(() => {
     planMutationBusyRef.current.reset();
     planMutationRevisionRef.current += 1;
-  }
+  }, []);
 
   useEffect(() => {
     const requestGuard = requestGuardRef.current;
@@ -292,7 +294,7 @@ export default function Home() {
       stepMutationLockRef.current = createMutationLock();
       subscription.unsubscribe();
     };
-  }, []);
+  }, [resetPlanMutationLock]);
 
   useEffect(() => {
     if (!canOpenNotes) {
@@ -821,8 +823,8 @@ export default function Home() {
     }
   }
   async function saveNightBingeStartTime(value: string) { setNightBingeStartTime(value); const { error } = await supabase.rpc('save_my_night_binge_settings', { p_start_time: value }); if (error) setPlanError('No se pudo guardar la hora nocturna.'); }
-  const madridNowTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
-  const canShowNightBingeAlarm = canTrackNightBinges && selectedDate === madridDateString() && madridNowTime >= nightBingeStartTime;
+  const madridNowTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(nightClock);
+  const canShowNightBingeAlarm = canTrackNightBinges && selectedDate === madridDateString(nightClock) && isNightBingeTime(madridNowTime, nightBingeStartTime);
 
   useEffect(() => {
     if (session) {
@@ -1060,7 +1062,7 @@ export default function Home() {
     selectDate(formatDateString(d));
   };
 
-  const selectDate = (nextDate: string) => {
+  const selectDate = useCallback((nextDate: string) => {
     requestGuardRef.current.invalidateRequests();
     sourceDaysGuardRef.current.invalidateRequests();
     planMutationGuardRef.current.invalidate();
@@ -1088,7 +1090,28 @@ export default function Home() {
     setSelectedSourceDate('');
     setShowLoadDayModal(false);
     setSelectedDate(nextDate);
-  };
+  }, [resetPlanMutationLock]);
+
+  useEffect(() => {
+    let lastToday = madridDateString();
+    const refreshNightClock = () => {
+      const nextToday = madridDateString();
+      if (nextToday !== lastToday) {
+        if (selectedDate === lastToday) selectDate(nextToday);
+        lastToday = nextToday;
+      }
+      setNightClock(new Date());
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshNightClock();
+    };
+    const timer = window.setInterval(refreshNightClock, 60_000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [selectedDate, selectDate]);
 
   // Selección de receta para una comida libre existente
   const handleSelectRecipeForMeal = async (mealId: string, selectedRecipeTitle: string) => {
