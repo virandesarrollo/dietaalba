@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, LogOut, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { normalizeDailyStepRow, parseStepGoal } from '@/lib/daily-steps.js';
+import { parseCalorieGoal } from '@/lib/calorie-goal.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
 import { madridDateString } from '@/lib/historical-date.js';
 import { validateColorPalette, type ThemeColorKey } from '@/lib/theme-preferences.js';
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [canChangeTheme, setCanChangeTheme] = useState(false);
   const [canTrackGymWorkouts, setCanTrackGymWorkouts] = useState(false);
   const [canTrackSteps, setCanTrackSteps] = useState(false);
+  const [canTrackCalories, setCanTrackCalories] = useState(false);
   const [canTrackWater, setCanTrackWater] = useState(false);
   const [canTrackNightBinges, setCanTrackNightBinges] = useState(false);
   const [nightBingeStartTime, setNightBingeStartTime] = useState('22:00');
@@ -39,6 +41,9 @@ export default function SettingsPage() {
   const [savingGymStep, setSavingGymStep] = useState(false);
   const [gymStepMessage, setGymStepMessage] = useState<string | null>(null);
   const [stepGoal, setStepGoal] = useState('10000');
+  const [calorieGoal, setCalorieGoal] = useState('2000');
+  const [savingCalorieGoal, setSavingCalorieGoal] = useState(false);
+  const [calorieGoalMessage, setCalorieGoalMessage] = useState<string | null>(null);
   const [savingStepGoal, setSavingStepGoal] = useState(false);
   const [stepGoalMessage, setStepGoalMessage] = useState<string | null>(null);
   const [stepGoalLoadError, setStepGoalLoadError] = useState(false);
@@ -56,14 +61,14 @@ export default function SettingsPage() {
   const draftColors = { ...colors, ...colorEdits };
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
-  const hasFunctionalSettings = canTrackGymWorkouts || canTrackSteps || canTrackWater || canTrackNightBinges;
+  const hasFunctionalSettings = canTrackGymWorkouts || canTrackSteps || canTrackCalories || canTrackWater || canTrackNightBinges;
 
   useEffect(() => {
     let active = true;
     let receivedAuthEvent = false;
     const clearIdentityState = () => {
-      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanTrackWater(false); setCanTrackSteps(false);
-      setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setStepGoal('10000'); setStepGoalMessage(null); setSavingStepGoal(false); setStepGoalLoadError(false); setLoadingStepGoal(true); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
+      setCanAccessSettings(false); setCanChangeTheme(false); setCanTrackGymWorkouts(false); setCanTrackWater(false); setCanTrackSteps(false); setCanTrackCalories(false);
+      setColorEdits({}); setGymWeightStep('1'); setGymStepMessage(null); setSavingGymStep(false); setStepGoal('10000'); setStepGoalMessage(null); setSavingStepGoal(false); setStepGoalLoadError(false); setLoadingStepGoal(true); setCalorieGoal('2000'); setCalorieGoalMessage(null); setSavingCalorieGoal(false); setWaterGoalMl('2000'); setWaterGlassMl('250'); setWaterMessage(null);
     };
     async function checkAccess(generation: number, userId: string, requestGeneration: number) {
       const isCurrent = () => active && generation === authGenerationRef.current && userId === currentUserIdRef.current && requestGeneration === requestGenerationRef.current;
@@ -85,6 +90,14 @@ export default function SettingsPage() {
       setCanTrackWater(capabilities.canTrackWater);
       setCanTrackNightBinges(capabilities.canTrackNightBinges);
       setCanTrackSteps(capabilities.canTrackSteps);
+      setCanTrackCalories(capabilities.canTrackCalories);
+      if (capabilities.canTrackCalories) {
+        const { data: goal, error: goalError } = await supabase.rpc('get_my_calorie_goal', { p_date: madridDateString() });
+        if (isCurrent()) {
+          if (goalError || typeof goal !== 'number') setCalorieGoalMessage('No se pudo cargar el objetivo de kcal.');
+          else { setCalorieGoal(String(goal)); setCalorieGoalMessage(null); }
+        }
+      }
       if (capabilities.canTrackGymWorkouts) {
         const { data: step } = await supabase.rpc('get_my_gym_weight_step');
         if (isCurrent() && typeof step === 'number' && step > 0) setGymWeightStep(String(step));
@@ -175,6 +188,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveCalorieGoal() {
+    const goal = parseCalorieGoal(calorieGoal);
+    if (goal === null) { setCalorieGoalMessage('Indica un objetivo entre 500 y 10.000 kcal.'); return; }
+    const generation = authGenerationRef.current;
+    const userId = currentUserIdRef.current;
+    setSavingCalorieGoal(true);
+    try {
+      const { error: goalError } = await supabase.rpc('save_my_calorie_goal', { p_goal_kcal: goal });
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) {
+        setCalorieGoalMessage(goalError ? 'No se pudo guardar el objetivo de kcal.' : 'Objetivo de kcal guardado.');
+      }
+    } catch {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setCalorieGoalMessage('No se pudo guardar el objetivo de kcal.');
+    } finally {
+      if (generation === authGenerationRef.current && userId !== null && userId === currentUserIdRef.current) setSavingCalorieGoal(false);
+    }
+  }
+
   async function saveWaterPreferences() {
     const goal = Number(waterGoalMl); const glass = Number(waterGlassMl);
     if (!Number.isInteger(goal) || !Number.isInteger(glass) || goal < 250 || glass < 50) { setWaterMessage('Indica valores válidos.'); return; }
@@ -259,6 +290,7 @@ export default function SettingsPage() {
       <div className="px-5 pt-7">
 
         <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
+        {canTrackCalories && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Objetivo diario de kcal</h2><p className="theme-muted mt-1 text-xs">Se aplica desde hoy; los días anteriores conservan su objetivo.</p><div className="mt-4 flex items-center gap-3"><input type="number" min="500" max="10000" step="1" value={calorieGoal} onChange={(event) => setCalorieGoal(event.target.value)} className="min-h-12 w-full rounded-2xl border px-4" aria-label="Objetivo diario de kcal" disabled={savingCalorieGoal} /><button type="button" disabled={savingCalorieGoal} onClick={() => void saveCalorieGoal()} className="min-h-12 rounded-2xl bg-rose-500 px-5 font-semibold text-white disabled:opacity-50">Guardar objetivo</button></div>{calorieGoalMessage && <p className="theme-muted mt-3 text-xs" role="status">{calorieGoalMessage}</p>}</section>}
         {canTrackSteps && (
           <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
             <h2 className="font-bold text-slate-800">Objetivo diario de pasos</h2>

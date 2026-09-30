@@ -116,6 +116,7 @@ export default function Home() {
   const [meals, setMeals] = useState<Meal[]>([]);
   const [skippedMealTypes, setSkippedMealTypes] = useState<Set<string>>(() => new Set());
   const [waterMl, setWaterMl] = useState(0);
+  const [calorieGoalByDate, setCalorieGoalByDate] = useState<{ date: string; value: number } | null>(null);
   const [waterGoalMl, setWaterGoalMl] = useState(2000);
   const [waterGlassMl, setWaterGlassMl] = useState(250);
   const [dailySteps, setDailySteps] = useState(0);
@@ -144,6 +145,7 @@ export default function Home() {
   const snackCalories = useMemo(() => snacks.reduce((total, snack) => total + (snack.kcal ?? 0), 0), [snacks]);
   const nightBingeCalories = useMemo(() => nightBingeLogs.reduce((total, log) => total + (log.kcal ?? 0), 0), [nightBingeLogs]);
   const totalDailyCalories = completedCalories + snackCalories + nightBingeCalories;
+  const calorieGoalKcal = calorieGoalByDate?.date === selectedDate ? calorieGoalByDate.value : null;
   const [planError, setPlanError] = useState<string | null>(null);
   const [mutatingPlan, setMutatingPlan] = useState(false);
   const [planRefreshRequired, setPlanRefreshRequired] = useState(false);
@@ -235,6 +237,7 @@ export default function Home() {
       setMeals([]);
       setSkippedMealTypes(new Set());
       setWaterMl(0);
+      setCalorieGoalByDate(null);
       setWaterGoalMl(2000);
       setWaterGlassMl(250);
       setDailySteps(0);
@@ -355,6 +358,13 @@ export default function Home() {
     commit(() => setFeatureCapabilities(nextCapabilities));
     commit(() => setFeatureError(featuresError ? 'No se pudieron cargar algunas funciones.' : null));
     commit(() => setLoadingFeatures(false));
+
+    if (nextCapabilities.canTrackCalories) {
+      const goalResult = await supabase.rpc('get_my_calorie_goal', { p_date: targetDate });
+      if (!requestGuard.isCurrent(request)) return;
+      commit(() => setCalorieGoalByDate(!goalResult.error && typeof goalResult.data === 'number'
+        ? { date: targetDate, value: goalResult.data } : null));
+    } else commit(() => setCalorieGoalByDate(null));
 
     if (nextCapabilities.canTrackSteps) {
       setStepsLoading(true);
@@ -1058,6 +1068,7 @@ export default function Home() {
     setPlanRefreshRequired(false);
     setLoading(true);
     setMeals([]);
+    setCalorieGoalByDate(null);
     setDailySteps(0);
     setDailyStepGoal(10000);
     setStepInput('0');
@@ -1512,11 +1523,11 @@ export default function Home() {
               </button>
             </div>
             {canTrackCalories && (
-              <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} kilocalorías consumidas`}>
+              <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} de ${calorieGoalKcal ?? 'objetivo pendiente'} kilocalorías`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
                 <span className="kcal-summary-copy">
                   <span className="kcal-summary-label">Kcal consumidas</span>
-                  <strong className="kcal-summary-value"><span className="kcal-summary-number">{totalDailyCalories}</span> <span className="kcal-summary-unit">kcal</span></strong>
+                  <strong className="kcal-summary-value"><span className="kcal-summary-number">{totalDailyCalories}</span> <span className="kcal-summary-unit">de {calorieGoalKcal ?? '…'} kcal</span></strong>
                   <span className="kcal-summary-label">Comidas + picoteos + nocturnos</span>
                 </span>
               </div>
