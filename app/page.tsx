@@ -778,7 +778,7 @@ export default function Home() {
     const kcal = snackKcalForSave();
     if (kcal === undefined) return;
     if (!navigator.onLine) { await queueOfflineRpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setSnackText(''); setSnackKcal(''); setShowSnackDialog(false); setSnackDialogMealType(null); return; }
-    const { error } = await supabase.rpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal });
+    const { error } = await supabase.rpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate });
     if (error) setPlanError('No se pudo registrar el picoteo.');
     else { await upsertPersonalCraving(snackText, kcal); setSnackText(''); setSnackKcal(''); setShowSnackDialog(false); setSnackDialogMealType(null); void fetchData(selectedDate); }
   }
@@ -897,7 +897,6 @@ export default function Home() {
       const reconciledMeals = selectionSaved ? reconcileMealSelection(previousMeals, mealId, response) : null;
       if (reconciledMeals) {
         setMeals(reconciledMeals);
-        return;
       }
       try {
         const { data: groupData, error: groupError } = await supabase
