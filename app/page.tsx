@@ -164,7 +164,7 @@ export default function Home() {
   const [availableSourceDays, setAvailableSourceDays] = useState<SourceDay[]>([]);
   const [loadingSourceDays, setLoadingSourceDays] = useState<boolean>(false);
   const [loadDayMode, setLoadDayMode] = useState<'copy' | 'swap'>('copy');
-  const visibleSourceDays = rankSourceDays(availableSourceDays, selectedDate, loadDayMode, madridDateString());
+  const visibleSourceDays: SourceDay[] = rankSourceDays(availableSourceDays, selectedDate, loadDayMode, madridDateString());
   const [keepCompletedMeals, setKeepCompletedMeals] = useState<boolean>(true);
   const [applyingDayChange, setApplyingDayChange] = useState<boolean>(false);
 
