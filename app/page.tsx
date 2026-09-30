@@ -105,6 +105,8 @@ export default function Home() {
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [featureCapabilities, setFeatureCapabilities] = useState(() => deriveFeatureCapabilities([]));
+  const [workDayOff, setWorkDayOff] = useState({ date: '', off: false });
+  const handleWorkDayOffChange = useCallback((date: string, off: boolean) => setWorkDayOff({ date, off }), []);
   const { canRateRecipes, canSendReport, canOpenNotes, canAccessSettings, canTrackWater, canTrackSnacks, canTrackNightBinges, canTrackCalories, canTrackSteps, canViewDaySchedule } = featureCapabilities;
   const [currentTab, setCurrentTab] = useState<'plan' | 'notes'>('plan');
   const [selectedDate, setSelectedDate] = useState<string>(madridDateString());
@@ -1520,7 +1522,7 @@ export default function Home() {
                 </span>
               </div>
             )}
-            {canViewDaySchedule && <WorkTimeCard key={`${session.user.id}:${selectedDate}`} date={selectedDate} userId={session.user.id} />}
+            {canViewDaySchedule && !(workDayOff.date === selectedDate && workDayOff.off) && <WorkTimeCard key={`${session.user.id}:${selectedDate}`} date={selectedDate} userId={session.user.id} onDayOffChange={handleWorkDayOffChange} />}
           </>
         ) : (
           <div className="mt-2 mb-2">
@@ -1813,6 +1815,10 @@ export default function Home() {
             </div>
           )}
         </section>
+      )}
+
+      {currentTab === 'plan' && canViewDaySchedule && workDayOff.date === selectedDate && workDayOff.off && (
+        <div className="px-5"><WorkTimeCard key={`${session.user.id}:${selectedDate}`} date={selectedDate} userId={session.user.id} onDayOffChange={handleWorkDayOffChange} /></div>
       )}
 
       {/* VISTA 2: APARTADO DE NOTAS */}
