@@ -541,8 +541,8 @@ export default function TrainingPage() {
         .select(
           "id, exercise_code, exercise_name_snapshot, position, created_at",
         )
-        .single()
-        .abortSignal(signal)) as { data: DailyExercise | null; error: unknown };
+        .abortSignal(signal)
+        .single()) as { data: DailyExercise | null; error: unknown };
         if (!result.error && result.data) savedExercise = result.data;
       } catch {
         // La petición puede haberse guardado aunque se pierda la respuesta.
