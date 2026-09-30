@@ -1523,7 +1523,7 @@ export default function Home() {
               </button>
             </div>
             {canTrackCalories && (
-              <div className="kcal-summary" role="status" aria-label={`${totalDailyCalories} de ${calorieGoalKcal ?? 'objetivo pendiente'} kilocalorías`}>
+              <div className="kcal-summary" data-status={calorieGoalKcal === null ? 'pending' : totalDailyCalories <= calorieGoalKcal ? 'ok' : 'over'} role="status" aria-label={`${totalDailyCalories} de ${calorieGoalKcal ?? 'objetivo pendiente'} kilocalorías`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
                 <span className="kcal-summary-copy">
                   <span className="kcal-summary-label">Kcal consumidas</span>

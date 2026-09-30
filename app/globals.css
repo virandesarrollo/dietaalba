@@ -694,6 +694,34 @@ main.theme-page > form.fixed {
   color: #fbbf24;
 }
 
+.kcal-summary[data-status='ok'] {
+  background: #ecfdf3;
+  border-color: #a7f3d0;
+}
+
+.kcal-summary[data-status='over'] {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.kcal-summary[data-status='ok'] .kcal-summary-icon { background: #10b981; box-shadow: none; }
+.kcal-summary[data-status='over'] .kcal-summary-icon { background: #fb7185; box-shadow: none; }
+.kcal-summary[data-status='ok'] .kcal-summary-unit { color: #047857; }
+.kcal-summary[data-status='over'] .kcal-summary-unit { color: #be123c; }
+
+[data-theme='dark'] .kcal-summary[data-status='ok'] {
+  background: #15352a;
+  border-color: #246b50;
+}
+
+[data-theme='dark'] .kcal-summary[data-status='over'] {
+  background: #3c222a;
+  border-color: #884252;
+}
+
+[data-theme='dark'] .kcal-summary[data-status='ok'] .kcal-summary-unit { color: #6ee7b7; }
+[data-theme='dark'] .kcal-summary[data-status='over'] .kcal-summary-unit { color: #fda4af; }
+
 .kcal-summary-label {
   color: var(--app-muted);
   font-size: 0.75rem;
