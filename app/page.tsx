@@ -1556,7 +1556,6 @@ export default function Home() {
                 {canTrackCalories && snack.kcal != null && <span className="snack-card-kcal">⚡ {snack.kcal} kcal</span>}
               </span>
             </span>
-            {!isOutsidePersonalCorrectionWindow && <span className="snack-card-edit">Editar</span>}
           </button>)}
           {editingSnack && renderSnackDialog('edit')}
           {planRefreshRequired && <button type="button" onClick={() => void reloadPlanView()} disabled={mutatingPlan || loading} className="mb-3 rounded-xl bg-purple-50 px-3 py-2 text-sm text-purple-700">Recargar vista</button>}
