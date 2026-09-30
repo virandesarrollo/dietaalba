@@ -7,6 +7,11 @@ import { formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReaso
 import { supabase } from '@/lib/supabase';
 
 type WorkTime = { worked_seconds: number; active: boolean; open?: boolean; day_off: boolean };
+type WorkPunch = { started_at: string; ended_at: string | null };
+
+function formatPunchTime(value: string) {
+  return new Date(value).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+}
 
 export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; userId: string; onDayOffChange: (date: string, dayOff: boolean) => void }) {
   const [goalMinutes, setGoalMinutes] = useState(0);
@@ -14,6 +19,9 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const [showManual, setShowManual] = useState(false);
   const [manualKind, setManualKind] = useState<'entry' | 'exit'>('entry');
   const [manualTime, setManualTime] = useState('');
+  const [showPunches, setShowPunches] = useState(false);
+  const [punches, setPunches] = useState<WorkPunch[] | null>(null);
+  const [punchError, setPunchError] = useState(false);
   const [correctionReason, setCorrectionReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -77,6 +85,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       setGoalMinutes(refreshed.goal);
       setTime(refreshed.time);
       onDayOffChange(date, refreshed.time.day_off);
+      if (showPunches) await refreshPunches();
     } catch { setError('No se pudo registrar la entrada o salida. Inténtalo de nuevo.'); }
     finally { setBusy(false); }
   }
@@ -103,8 +112,23 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       setShowManual(false);
       setManualTime('');
       await retryLoad();
+      if (showPunches) await refreshPunches();
     } catch { setError('No se pudo añadir el fichaje. Revisa la hora y el orden de entradas y salidas.'); }
     finally { setBusy(false); }
+  }
+
+  async function refreshPunches() {
+    setPunches(null);
+    setPunchError(false);
+    const result = await supabase.rpc('get_my_work_punches', { p_date: date });
+    if (result.error || !Array.isArray(result.data)) { setPunchError(true); return; }
+    setPunches(result.data as WorkPunch[]);
+  }
+
+  async function togglePunches() {
+    if (showPunches) { setShowPunches(false); return; }
+    setShowPunches(true);
+    await refreshPunches();
   }
 
   return <section className="mt-3 rounded-2xl border border-indigo-100 bg-white/85 p-4 text-sm shadow-sm" aria-label="Fichajes">
@@ -115,7 +139,14 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
         <button type="button" aria-label={time.day_off ? 'Volver a trabajar' : 'No se trabaja'} title={time.day_off ? 'Volver a trabajar' : 'No se trabaja'} aria-pressed={time.day_off} disabled={!canCorrect || busy} onClick={() => void setDayOff(!time.day_off)} className={`min-h-11 rounded-xl border font-semibold disabled:opacity-40 ${time.day_off ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-slate-200 text-slate-600'}`}>N</button>
         <button type="button" aria-label="Añadir fichaje manual" title="Añadir fichaje manual" aria-expanded={showManual && !time.day_off} disabled={!canCorrect || time.day_off || busy} onClick={() => { setManualKind((time.open ?? time.active) ? 'exit' : 'entry'); setShowManual(!showManual); }} className="min-h-11 rounded-xl border border-indigo-200 font-semibold text-indigo-700 disabled:opacity-40">+</button>
       </div>
-      <p className="mt-2 text-center text-base font-extrabold tabular-nums text-indigo-700">{time.day_off ? (today ? 'Hoy no se trabaja' : 'No se trabajó este día') : `Falta: ${formatWorkSeconds(remaining)}`}</p>
+      <button type="button" aria-expanded={showPunches} aria-controls="work-punch-list" onClick={() => void togglePunches()} className="mt-2 w-full text-center text-base font-extrabold tabular-nums text-indigo-700 underline decoration-indigo-200 underline-offset-4">{time.day_off ? (today ? 'Hoy no se trabaja' : 'No se trabajó este día') : `Falta: ${formatWorkSeconds(remaining)}`}</button>
+      {showPunches && <div id="work-punch-list" className="mt-3 rounded-xl bg-indigo-50 p-3">
+        {punchError ? <p role="alert" className="text-rose-700">No se pudieron cargar los fichajes.</p> : punches === null ? <p className="text-slate-500">Cargando fichajes…</p> : punches.length === 0 ? <p className="text-slate-600">No hay fichajes este día.</p> :
+          <ul className="space-y-3">{punches.map((punch, index) => <li key={`${punch.started_at}-${index}`} className="grid grid-cols-2 gap-2 rounded-xl bg-white p-3">
+            <div><span className="block text-sm text-slate-500">Entrada</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{formatPunchTime(punch.started_at)}</strong></div>
+            <div><span className="block text-sm text-slate-500">Salida</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{punch.ended_at ? formatPunchTime(punch.ended_at) : 'En curso'}</strong></div>
+          </li>)}</ul>}
+      </div>}
       {canCorrect && historical && <label className="mt-3 block text-slate-600">Motivo de la corrección (opcional) <input type="text" maxLength={200} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 px-3" /></label>}
       {canCorrect && !time.day_off && showManual && <div className="mt-2 space-y-2 rounded-xl bg-indigo-50 p-3">
         <fieldset className="flex gap-4"><legend className="mb-1 font-semibold">Tipo de fichaje</legend>
