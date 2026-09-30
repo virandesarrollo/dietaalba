@@ -90,7 +90,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       const result = await supabase.rpc('correct_my_work_day_off', { p_date: date, p_day_off: dayOff, p_reason: correctionReason.trim() });
       if (result.error) throw result.error;
       await retryLoad();
-    } catch { setError('No se pudo cambiar el estado del día. Comprueba que no haya fichajes.'); }
+    } catch { setError('No se pudo cambiar el estado del día. Inténtalo de nuevo.'); }
     finally { setBusy(false); }
   }
 
