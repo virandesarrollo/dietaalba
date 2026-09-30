@@ -12,8 +12,8 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const [goalMinutes, setGoalMinutes] = useState(0);
   const [time, setTime] = useState<WorkTime>({ worked_seconds: 0, active: false, day_off: false });
   const [showManual, setShowManual] = useState(false);
-  const [manualStart, setManualStart] = useState('');
-  const [manualEnd, setManualEnd] = useState('');
+  const [manualKind, setManualKind] = useState<'entry' | 'exit'>('entry');
+  const [manualTime, setManualTime] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -91,17 +91,16 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   }
 
   async function addManual() {
-    if (!today || busy || !manualStart || !manualEnd || manualEnd <= manualStart) return;
+    if (!today || busy || !manualTime) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await supabase.rpc('add_my_work_session', { p_start: manualStart, p_end: manualEnd });
+      const result = await supabase.rpc('add_my_work_punch', { p_kind: manualKind, p_time: manualTime });
       if (result.error) throw result.error;
       setShowManual(false);
-      setManualStart('');
-      setManualEnd('');
+      setManualTime('');
       await retryLoad();
-    } catch { setError('No se pudo añadir el fichaje. Revisa las horas y que no se solape con otro.'); }
+    } catch { setError('No se pudo añadir el fichaje. Revisa la hora y el orden de entradas y salidas.'); }
     finally { setBusy(false); }
   }
 
@@ -113,11 +112,14 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
         <button type="button" disabled={busy || !time.active} onClick={() => void register('stop_my_work_time')} className="min-h-11 flex-1 rounded-xl border border-indigo-200 px-4 font-semibold text-indigo-700 disabled:opacity-40">Salir</button>
       </div>}
       {today && <button type="button" disabled={busy} onClick={() => void setDayOff(!time.day_off)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 px-4 font-semibold text-slate-600 disabled:opacity-40">{time.day_off ? 'Volver a trabajar hoy' : 'Hoy no se trabaja'}</button>}
-      {today && !time.day_off && <button type="button" disabled={busy} onClick={() => setShowManual(!showManual)} className="mt-2 min-h-11 w-full rounded-xl border border-indigo-200 px-4 font-semibold text-indigo-700 disabled:opacity-40">Añadir fichaje manual</button>}
+      {today && !time.day_off && <button type="button" disabled={busy} onClick={() => { setManualKind(time.active ? 'exit' : 'entry'); setShowManual(!showManual); }} className="mt-2 min-h-11 w-full rounded-xl border border-indigo-200 px-4 font-semibold text-indigo-700 disabled:opacity-40">Añadir fichaje manual</button>}
       {today && !time.day_off && showManual && <div className="mt-2 space-y-2 rounded-xl bg-indigo-50 p-3">
-        <label className="block">Entrada <input type="time" value={manualStart} onChange={(event) => setManualStart(event.target.value)} className="ml-2 rounded border border-indigo-200 p-2" /></label>
-        <label className="block">Salida <input type="time" value={manualEnd} onChange={(event) => setManualEnd(event.target.value)} className="ml-2 rounded border border-indigo-200 p-2" /></label>
-        <button type="button" disabled={busy || !manualStart || !manualEnd || manualEnd <= manualStart} onClick={() => void addManual()} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 font-semibold text-white disabled:opacity-40">Guardar fichaje</button>
+        <fieldset className="flex gap-4"><legend className="mb-1 font-semibold">Tipo de fichaje</legend>
+          <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-kind" checked={manualKind === 'entry'} onChange={() => setManualKind('entry')} /> Entrada</label>
+          <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-kind" checked={manualKind === 'exit'} onChange={() => setManualKind('exit')} /> Salida</label>
+        </fieldset>
+        <label className="flex min-h-11 items-center gap-2">Hora <input type="time" value={manualTime} onChange={(event) => setManualTime(event.target.value)} className="rounded border border-indigo-200 p-2" /></label>
+        <button type="button" disabled={busy || !manualTime} onClick={() => void addManual()} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 font-semibold text-white disabled:opacity-40">Guardar fichaje</button>
       </div>}
     </>}
     {error && <p role="alert" className="mt-2 text-rose-700">{error}</p>}
