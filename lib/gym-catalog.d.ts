@@ -8,6 +8,7 @@ export type GymGroup = {
 
 export type GymExercise = {
   code: string;
+  substitute_code?: string | null;
   name: string;
   group_id: string;
   is_active: boolean;

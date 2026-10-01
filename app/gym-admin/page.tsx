@@ -42,6 +42,8 @@ export default function GymAdminPage() {
   const [exerciseGroupId, setExerciseGroupId] = useState('');
   const [exerciseEditName, setExerciseEditName] = useState('');
   const [exerciseEditGroupId, setExerciseEditGroupId] = useState('');
+  const [exerciseSubstitute, setExerciseSubstitute] = useState('');
+  const [exerciseEditSubstitute, setExerciseEditSubstitute] = useState('');
   const [editingExerciseCode, setEditingExerciseCode] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
@@ -64,7 +66,7 @@ export default function GymAdminPage() {
     try {
       const [groupResult, exerciseResult] = await Promise.all([
         supabase.from('gym_exercise_groups').select('id, code, name, sort_order, is_active'),
-        supabase.from('gym_exercises').select('code, name, group_id, is_active'),
+        supabase.from('gym_exercises').select('code, name, group_id, is_active, substitute_code'),
       ]);
       if (!isAuthCurrent(generation, userId) || requestGeneration !== requestGenerationRef.current) return false;
       const nextGroups = normalizeGymGroups(groupResult);
@@ -134,6 +136,8 @@ export default function GymAdminPage() {
       setAdminViews([]);
       setGroups([]);
       setExercises([]);
+      setExerciseSubstitute('');
+      setExerciseEditSubstitute('');
       setSavingKey(null);
       setMessage(null);
       setLoading(Boolean(userId));
@@ -233,13 +237,13 @@ export default function GymAdminPage() {
     try {
       setSavingKey(exerciseCode ? `exercise:${exerciseCode}` : 'new-exercise'); setMessage(null);
       const result = exerciseCode
-        ? await supabase.rpc('update_gym_exercise', { p_exercise_code: exerciseCode, p_name: validation.values.name, p_group_id: validation.values.groupId })
-        : await supabase.rpc('create_gym_exercise', { p_name: validation.values.name, p_group_id: validation.values.groupId });
+        ? await supabase.rpc('update_gym_exercise', { p_exercise_code: exerciseCode, p_name: validation.values.name, p_group_id: validation.values.groupId, p_substitute_code: exerciseEditSubstitute || null })
+        : await supabase.rpc('create_gym_exercise', { p_name: validation.values.name, p_group_id: validation.values.groupId, p_substitute_code: exerciseSubstitute || null });
       if (!isAuthCurrent(generation, userId)) return;
       if (result.error) reportWriteError(result.error, 'No se pudo guardar el ejercicio.');
       else if (await loadCatalog(generation, userId)) {
         if (!isAuthCurrent(generation, userId)) return;
-        if (exerciseCode) { setExerciseEditName(''); setExerciseEditGroupId(''); setEditingExerciseCode(null); } else setExerciseName('');
+        if (exerciseCode) { setExerciseEditName(''); setExerciseEditGroupId(''); setEditingExerciseCode(null); setExerciseEditSubstitute(''); } else { setExerciseName(''); setExerciseSubstitute(''); }
         setMessage({ kind: 'success', text: exerciseCode ? 'Ejercicio actualizado.' : 'Ejercicio creado.' });
       }
     } catch {
@@ -273,6 +277,7 @@ export default function GymAdminPage() {
 
   function editGroup(group: GymGroup) { setEditingGroupId(group.id); setGroupEditName(group.name); }
   function editExercise(exercise: GymExercise) {
+    setExerciseEditSubstitute(exercise.substitute_code ?? '');
     setEditingExerciseCode(exercise.code); setExerciseEditName(exercise.name); setExerciseEditGroupId(exercise.group_id);
   }
 
@@ -306,6 +311,12 @@ export default function GymAdminPage() {
             <option value="">Selecciona grupo</option>
             {groups.map((group) => <option key={group.id} value={group.id}>{group.name}{group.is_active ? '' : ' (inactivo)'}</option>)}
           </select>
+          <label className="mt-3 block text-sm">Ejercicio sustituto (opcional)
+            <select value={exerciseSubstitute} onChange={(event) => setExerciseSubstitute(event.target.value)} disabled={busy} className="theme-border mt-1 min-h-12 w-full rounded-2xl border px-4">
+              <option value="">Sin sustituto</option>
+              {exercises.filter((item) => item.is_active && groups.some((group) => group.id === item.group_id && group.is_active)).map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
           <div className="mt-3 flex gap-2">
             <button type="button" onClick={() => void saveExercise()} disabled={busy} className="min-h-12 flex-1 rounded-2xl bg-pink-500 px-4 font-semibold text-white disabled:opacity-50">Crear ejercicio</button>
           </div>
@@ -346,6 +357,12 @@ export default function GymAdminPage() {
                           <select value={exerciseEditGroupId} onChange={(event) => setExerciseEditGroupId(event.target.value)} disabled={busy} aria-label={`Nuevo grupo de ${exercise.name}`} className="theme-border min-h-12 w-full rounded-xl border px-3">
                             {groups.map((option) => <option key={option.id} value={option.id}>{option.name}{option.is_active ? '' : ' (inactivo)'}</option>)}
                           </select>
+                          <label className="block text-sm">Ejercicio sustituto (opcional)
+                            <select value={exerciseEditSubstitute} onChange={(event) => setExerciseEditSubstitute(event.target.value)} disabled={busy} className="theme-border mt-1 min-h-12 w-full rounded-xl border px-3">
+                              <option value="">Sin sustituto</option>
+                              {exercises.filter((item) => item.code !== exercise.code && (item.code === exercise.substitute_code || (item.is_active && groups.some((group) => group.id === item.group_id && group.is_active)))).map((item) => <option key={item.code} value={item.code}>{item.name}{!item.is_active || !groups.some((group) => group.id === item.group_id && group.is_active) ? ' (inactivo)' : ''}</option>)}
+                            </select>
+                          </label>
                           <div className="grid grid-cols-2 gap-2">
                             <button type="button" onClick={() => void saveExercise(exercise.code)} disabled={busy} className="min-h-12 rounded-xl bg-pink-500 font-semibold text-white disabled:opacity-50">Guardar ejercicio</button>
                             <button type="button" onClick={() => { setEditingExerciseCode(null); setExerciseEditName(''); setExerciseEditGroupId(''); }} disabled={busy} aria-label="Cancelar edición del ejercicio" className="theme-border min-h-12 rounded-xl border font-semibold">Cancelar</button>

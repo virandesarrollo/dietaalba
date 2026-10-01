@@ -328,8 +328,8 @@ export default function FriendsPage() {
             </div>
           </section>
         )}
-        <section className="theme-surface rounded-2xl p-4">
-          <h2 className="font-bold">Mensajes de ánimo</h2>
+        <details className="theme-surface rounded-2xl p-4">
+          <summary className="min-h-11 cursor-pointer rounded-lg py-3 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600">Mensajes de ánimo</summary>
           <p className="theme-muted mt-1 text-xs">Recibe avisos cuando un amigo te escriba.</p>
           <button type="button" disabled={busyAction !== null} onClick={() => void saveFriendPush(!friendPushEnabled)} className="mt-3 min-h-11 rounded-xl bg-violet-600 px-4 text-xs font-semibold text-white disabled:opacity-50">
             {friendPushEnabled ? 'Desactivar avisos de amigos' : 'Activar avisos de amigos'}
@@ -345,7 +345,7 @@ export default function FriendsPage() {
               </article>
             ))}
           </div>
-        </section>
+        </details>
       </section>
     </main>
   );

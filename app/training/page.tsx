@@ -42,6 +42,7 @@ import {
 import { madridDateString } from "@/lib/historical-date.js";
 import { buildWorkoutBlocks, type WorkoutSuperset } from "@/lib/gym-supersets.js";
 import { formatWorkoutShareText } from "@/lib/gym-workout-share.js";
+import { getGymSubstitute } from "@/lib/gym-substitutes.js";
 import { supabase } from "@/lib/supabase";
 import { advanceAuthIdentity } from "@/lib/view-capabilities-guard.js";
 import { withAbortTimeout } from "@/lib/abort-timeout.js";
@@ -55,6 +56,7 @@ type ExerciseGroup = {
 };
 type Exercise = {
   code: string;
+  substitute_code?: string | null;
   name: string;
   group_id: string;
   is_active: boolean;
@@ -378,7 +380,7 @@ export default function TrainingPage() {
             supabase
               .from("gym_exercises")
               .select(
-                "code, name, group_id, is_active, gym_exercise_groups!inner(code, name, sort_order, is_active)",
+                "code, name, group_id, is_active, substitute_code, gym_exercise_groups!inner(code, name, sort_order, is_active)",
               )
               .eq("is_active", true)
               .eq("gym_exercise_groups.is_active", true),
@@ -1040,6 +1042,48 @@ export default function TrainingPage() {
     }
   }
 
+  async function substituteExercise(exercise: DailyExercise) {
+    const substitute = getGymSubstitute(catalog, exercise.exercise_code, dailyExercises.map((item) => item.exercise_code));
+    if (!membership || mutationLockRef.current || workoutDate < today || !substitute) return;
+    if (sets.some((set) => set.exercise_code === exercise.exercise_code && set.is_completed)) return;
+    const authGeneration = authGenerationRef.current;
+    const mutationUserId = currentUserIdRef.current;
+    const mutationGeneration = workoutGenerationRef.current;
+    const mutationDate = workoutDate;
+    const isCurrent = () => authGeneration === authGenerationRef.current &&
+      mutationUserId === currentUserIdRef.current && mutationGeneration === workoutGenerationRef.current;
+    if (!(await confirmDialog({
+      title: "Sustituir ejercicio",
+      message: `¿Sustituir ${exercise.exercise_name_snapshot} por ${substitute.name}? Se descartarán las series pendientes de este ejercicio y se conservará su posición.`,
+      confirmLabel: "Sustituir",
+    })) || !isCurrent() || mutationLockRef.current) return;
+    mutationLockRef.current = true;
+    const mutationToken = ++mutationTokenRef.current;
+    setSaving(true);
+    setFeedback("");
+    try {
+      const result = await supabase.rpc("substitute_my_gym_workout_exercise", {
+        p_workout_date: mutationDate, p_exercise_id: exercise.id, p_substitute_code: substitute.code,
+      });
+      if (!isCurrent()) return;
+      if (result.error || !result.data) {
+        setFeedback("No se pudo sustituir. Comprueba que el sustituto está activo, no está añadido y no hay series completadas. Recarga y vuelve a intentarlo.");
+        return;
+      }
+      setDailyExercises((current) => current.map((item) => item.id === exercise.id ? result.data as DailyExercise : item));
+      setSets((current) => current.filter((set) => set.exercise_code !== exercise.exercise_code));
+      if (draftExerciseCode === exercise.exercise_code) cancelDraft();
+      setFeedback(`Ejercicio sustituido por ${substitute.name}.`);
+    } catch {
+      if (isCurrent()) setFeedback("No se pudo confirmar la sustitución. Recarga el entrenamiento antes de intentarlo de nuevo.");
+    } finally {
+      if (mutationToken === mutationTokenRef.current) {
+        mutationLockRef.current = false;
+        setSaving(false);
+      }
+    }
+  }
+
   async function deleteDailyExercise(exercise: DailyExercise) {
     if (!membership || mutationLockRef.current) return;
     if (
@@ -1291,6 +1335,14 @@ export default function TrainingPage() {
               </button>
             </div>
           </header>
+          {getGymSubstitute(catalog, card.exerciseCode, dailyExercises.map((item) => item.exercise_code)) && (
+            <button type="button"
+              disabled={saving || workoutDate < today || card.sets.some((set) => set.isCompleted)}
+              onClick={() => void substituteExercise(dailyExercises.find((item) => item.id === card.id)!)}
+              className="mt-3 min-h-12 w-full rounded-2xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 disabled:opacity-40">
+              Sustituir por {getGymSubstitute(catalog, card.exerciseCode, dailyExercises.map((item) => item.exercise_code))?.name}
+            </button>
+          )}
           <button
             type="button"
             aria-haspopup="dialog"
