@@ -417,12 +417,12 @@ export default function UsersPage() {
                     <div className="mt-4 flex justify-end"><button type="button" onClick={() => void saveFeatures(member)} disabled={!actions.canSetFeatures || busy} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-40 sm:w-auto">{busy ? 'Guardando…' : 'Guardar funcionalidades'}</button></div>
                   </fieldset>
                 </div>
-                {member.user_id && member.status === 'active' && member.roles.includes('patient') && actions.canSetFeatures && <DayScheduleEditor membershipId={member.membership_id} />}
+                {member.user_id && member.status === 'active' && (isSelf || (member.roles.includes('patient') && actions.canSetFeatures)) && <DayScheduleEditor membershipId={member.membership_id} />}
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                   <p className="text-sm font-bold text-slate-800">Acciones de cuenta</p>
                   <p className="mt-1 text-xs text-slate-500">Gestiona el acceso y los privilegios del usuario.</p>
                   <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div>
-                  {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
+                  {isSelf && <p className="mt-3 text-xs text-slate-400">Puedes editar tu horario; los roles, funcionalidades y acciones de tu propia cuenta están bloqueados.</p>}
                 </div>
               </div>
             </details>;
