@@ -19,6 +19,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const [time, setTime] = useState<WorkTime>({ worked_seconds: 0, active: false, day_off: false });
   const [showManual, setShowManual] = useState(false);
   const [manualKind, setManualKind] = useState<'entry' | 'exit'>('entry');
+  const [manualBreakKind, setManualBreakKind] = useState<'normal' | 'coffee'>('normal');
   const [manualTime, setManualTime] = useState('');
   const [editingPunch, setEditingPunch] = useState<WorkPunch | null>(null);
   const [showPunches, setShowPunches] = useState(false);
@@ -124,7 +125,10 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
     setBusy(true);
     setError(null);
     try {
-      const result = await supabase.rpc('correct_my_work_punch', { p_date: date, p_kind: manualKind, p_time: manualTime, p_reason: workCorrectionReason(correctionReason, manualKind) });
+      const params = { p_date: date, p_kind: manualKind, p_time: manualTime, p_reason: workCorrectionReason(correctionReason, manualKind) };
+      const result = today
+        ? await supabase.rpc('correct_my_work_punch_with_break', { ...params, p_break_kind: manualBreakKind })
+        : await supabase.rpc('correct_my_work_punch', params);
       if (result.error) throw result.error;
       setShowManual(false);
       setManualTime('');
@@ -184,7 +188,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
         <button type="button" aria-label="Entrar" title="Entrar" disabled={!today || !isWorkday(date) || time.day_off || !(goalMinutes > 0 || time.active) || busy || time.active || goalMinutes === 0} onClick={() => { setError(null); setPunchKind('entry'); }} className="min-h-11 rounded-xl bg-indigo-600 font-semibold text-white disabled:opacity-40">E</button>
         <button type="button" aria-label="Salir" title="Salir" disabled={!today || !isWorkday(date) || time.day_off || busy || !time.active} onClick={() => { setError(null); setPunchKind('exit'); }} className="min-h-11 rounded-xl border border-indigo-200 font-semibold text-indigo-700 disabled:opacity-40">S</button>
         <button type="button" aria-label={time.day_off ? 'Volver a trabajar' : 'No se trabaja'} title={time.day_off ? 'Volver a trabajar' : 'No se trabaja'} aria-pressed={time.day_off} disabled={!canCorrect || busy} onClick={() => void setDayOff(!time.day_off)} className={`min-h-11 rounded-xl border font-semibold disabled:opacity-40 ${time.day_off ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-slate-200 text-slate-600'}`}>N</button>
-        <button type="button" aria-label="Añadir fichaje manual" title="Añadir fichaje manual" aria-expanded={showManual && !editingPunch && !time.day_off} disabled={!canCorrect || time.day_off || busy} onClick={() => { setEditingPunch(null); setManualTime(''); setManualKind((time.open ?? time.active) ? 'exit' : 'entry'); setShowManual(editingPunch ? true : !showManual); }} className="min-h-11 rounded-xl border border-indigo-200 font-semibold text-indigo-700 disabled:opacity-40">+</button>
+        <button type="button" aria-label="Añadir fichaje manual" title="Añadir fichaje manual" aria-expanded={showManual && !editingPunch && !time.day_off} disabled={!canCorrect || time.day_off || busy} onClick={() => { setEditingPunch(null); setManualTime(''); setManualBreakKind('normal'); setManualKind((time.open ?? time.active) ? 'exit' : 'entry'); setShowManual(editingPunch ? true : !showManual); }} className="min-h-11 rounded-xl border border-indigo-200 font-semibold text-indigo-700 disabled:opacity-40">+</button>
       </div>
       <button type="button" aria-expanded={showPunches} aria-controls="work-punch-list" onClick={() => void togglePunches()} className="mt-2 w-full text-center text-base font-extrabold tabular-nums text-indigo-700 underline decoration-indigo-200 underline-offset-4">{time.day_off ? (today ? 'Hoy no se trabaja' : 'No se trabajó este día') : `Falta: ${formatWorkSeconds(remaining)}`}</button>
       {today && !time.day_off && <p className="mt-1 text-center text-base font-bold tabular-nums text-indigo-700">Salida calculada: {calculatedExit ?? '—'}</p>}
@@ -202,6 +206,10 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
         {editingPunch ? <p className="font-semibold">Editar {manualKind === 'entry' ? 'entrada' : 'salida'}</p> : <fieldset className="flex gap-4"><legend className="mb-1 font-semibold">Tipo de fichaje</legend>
           <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-kind" checked={manualKind === 'entry'} onChange={() => setManualKind('entry')} /> Entrada</label>
           <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-kind" checked={manualKind === 'exit'} onChange={() => setManualKind('exit')} /> Salida</label>
+        </fieldset>}
+        {!editingPunch && today && <fieldset disabled={busy} className="flex gap-4"><legend className="mb-1 font-semibold">Tipo de pausa</legend>
+          <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-break" checked={manualBreakKind === 'normal'} onChange={() => setManualBreakKind('normal')} /> Normal</label>
+          <label className="flex min-h-11 items-center gap-2"><input type="radio" name="manual-work-break" checked={manualBreakKind === 'coffee'} onChange={() => setManualBreakKind('coffee')} /> Café</label>
         </fieldset>}
         <label className="flex min-h-11 items-center gap-2">Hora <input key={`${editingPunch?.id ?? 'new'}-${manualKind}`} autoFocus={!!editingPunch} disabled={busy} type="time" value={manualTime} onChange={(event) => setManualTime(event.target.value)} className="rounded border border-indigo-200 p-2" /></label>
         <button type="button" disabled={busy || !manualTime} onClick={() => void (editingPunch ? savePunchEdit() : addManual())} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 font-semibold text-white disabled:opacity-40">{editingPunch ? 'Guardar cambios' : 'Guardar fichaje'}</button>
