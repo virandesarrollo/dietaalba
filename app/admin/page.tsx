@@ -423,6 +423,8 @@ export default function AdminPage() {
         const selection = selectionRef.current;
         if (selection.patientId === patientSnapshot && selection.date === dateSnapshot) {
           setDrafts((current) => applySavedMealIds(current, (data ?? []) as SavedMeal[], mealGroups) as MealDrafts);
+          setLoadedPlanContext(null);
+          setImportRefreshKey((key) => key + 1);
         }
         setMessage({ type: 'success', text: applyFuture ? 'Plan aplicado desde hoy en adelante.' : 'Plan guardado correctamente.' });
       }
