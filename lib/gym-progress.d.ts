@@ -8,7 +8,12 @@ export type ProgressSummary = {
   changeKg: number | null;
 };
 export type ProgressChartPoint = ProgressSummaryEntry & { x: number; y: number };
+export type ProgressComparison = {
+  status: 'insufficient' | 'unchanged' | 'mixed' | 'improved' | 'decreased';
+  label: string;
+};
 
 export function buildProgressSessions(rows: readonly ProgressRow[], limit?: number): ProgressSession[];
 export function summarizeProgress(sessions: readonly ProgressSession[]): ProgressSummary;
-export function buildProgressChartPoints(sessions: readonly ProgressSession[]): ProgressChartPoint[];
+export function compareProgressSets(previous: ProgressSet | null, latest: ProgressSet | null): ProgressComparison;
+export function buildProgressChartPoints(sessions: readonly ProgressSession[], metric?: 'weightKg' | 'reps'): ProgressChartPoint[];
