@@ -1676,8 +1676,8 @@ export default function Home() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-xl font-extrabold leading-snug text-purple-600 sm:text-2xl">{mealType}</h3>
                     {groupCompleted && (
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        Comida realizada
+                      <span className="inline-flex shrink-0 items-center self-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold leading-none text-emerald-700">
+                        Hecho
                       </span>
                     )}
                     {groupSkipped && (
