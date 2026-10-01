@@ -12,6 +12,7 @@ import { formatDailyFoodShare } from '@/lib/daily-food-share.js';
 import { isNightBingeTime } from '@/lib/night-binge-time.js';
 import { rankSourceDays } from '@/lib/source-day-options.js';
 import { AccountMenu } from '@/components/AccountMenu';
+import { TodaySummary } from '@/components/TodaySummary';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
@@ -1520,6 +1521,7 @@ export default function Home() {
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
           <div className="flex shrink-0 items-center gap-2">
+            {currentTab === 'plan' && <TodaySummary date={madridDateString()} userId={session.user.id} canViewSchedule={canViewDaySchedule} canViewTraining={featureCapabilities.canTrackGymWorkouts} />}
             <button type="button" aria-label="Ver autocontrol semanal" onClick={() => router.push('/self-control')} className="flex min-h-10 min-w-10 items-center justify-center px-1 text-2xl">🔥</button>
             <AccountMenu
               email={session.user.email ?? ''}
