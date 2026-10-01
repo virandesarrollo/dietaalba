@@ -19,6 +19,7 @@ import {
   type GymGroup,
 } from '@/lib/gym-catalog.js';
 import { supabase } from '@/lib/supabase';
+import { filterGymSubstitutesByGroup } from '@/lib/gym-substitutes.js';
 
 type Message = { kind: 'error' | 'success'; text: string };
 type RoleRow = { role_code: RoleCode };
@@ -277,7 +278,8 @@ export default function GymAdminPage() {
 
   function editGroup(group: GymGroup) { setEditingGroupId(group.id); setGroupEditName(group.name); }
   function editExercise(exercise: GymExercise) {
-    setExerciseEditSubstitute(exercise.substitute_code ?? '');
+    setExerciseEditSubstitute(filterGymSubstitutesByGroup(exercises, exercise.group_id, exercise.code)
+      .some((item) => item.code === exercise.substitute_code) ? exercise.substitute_code ?? '' : '');
     setEditingExerciseCode(exercise.code); setExerciseEditName(exercise.name); setExerciseEditGroupId(exercise.group_id);
   }
 
@@ -307,14 +309,14 @@ export default function GymAdminPage() {
         <section className="theme-surface rounded-3xl p-5 shadow-sm">
           <h2 className="text-lg font-bold text-slate-800">Nuevo ejercicio</h2>
           <input value={exerciseName} onChange={(event) => setExerciseName(event.target.value)} disabled={busy} aria-label="Nombre del ejercicio" placeholder="Nombre del ejercicio" className="theme-border mt-3 min-h-12 w-full rounded-2xl border px-4" />
-          <select value={exerciseGroupId} onChange={(event) => setExerciseGroupId(event.target.value)} disabled={busy} aria-label="Grupo del ejercicio" className="theme-border mt-3 min-h-12 w-full rounded-2xl border px-4">
+          <select value={exerciseGroupId} onChange={(event) => { setExerciseGroupId(event.target.value); setExerciseSubstitute(''); }} disabled={busy} aria-label="Grupo del ejercicio" className="theme-border mt-3 min-h-12 w-full rounded-2xl border px-4">
             <option value="">Selecciona grupo</option>
             {groups.map((group) => <option key={group.id} value={group.id}>{group.name}{group.is_active ? '' : ' (inactivo)'}</option>)}
           </select>
           <label className="mt-3 block text-sm">Ejercicio sustituto (opcional)
             <select value={exerciseSubstitute} onChange={(event) => setExerciseSubstitute(event.target.value)} disabled={busy} className="theme-border mt-1 min-h-12 w-full rounded-2xl border px-4">
               <option value="">Sin sustituto</option>
-              {exercises.filter((item) => item.is_active && groups.some((group) => group.id === item.group_id && group.is_active)).map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+              {filterGymSubstitutesByGroup(exercises, exerciseGroupId).filter((item) => item.is_active && groups.some((group) => group.id === item.group_id && group.is_active)).map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
             </select>
           </label>
           <div className="mt-3 flex gap-2">
@@ -354,13 +356,13 @@ export default function GymAdminPage() {
                       {editingExerciseCode === exercise.code && (
                         <div className="mt-3 space-y-2 rounded-2xl bg-pink-50/60 p-2">
                           <input value={exerciseEditName} onChange={(event) => setExerciseEditName(event.target.value)} disabled={busy} aria-label={`Nuevo nombre de ${exercise.name}`} className="theme-border min-h-12 w-full rounded-xl border px-3" />
-                          <select value={exerciseEditGroupId} onChange={(event) => setExerciseEditGroupId(event.target.value)} disabled={busy} aria-label={`Nuevo grupo de ${exercise.name}`} className="theme-border min-h-12 w-full rounded-xl border px-3">
+                          <select value={exerciseEditGroupId} onChange={(event) => { setExerciseEditGroupId(event.target.value); setExerciseEditSubstitute(''); }} disabled={busy} aria-label={`Nuevo grupo de ${exercise.name}`} className="theme-border min-h-12 w-full rounded-xl border px-3">
                             {groups.map((option) => <option key={option.id} value={option.id}>{option.name}{option.is_active ? '' : ' (inactivo)'}</option>)}
                           </select>
                           <label className="block text-sm">Ejercicio sustituto (opcional)
                             <select value={exerciseEditSubstitute} onChange={(event) => setExerciseEditSubstitute(event.target.value)} disabled={busy} className="theme-border mt-1 min-h-12 w-full rounded-xl border px-3">
                               <option value="">Sin sustituto</option>
-                              {exercises.filter((item) => item.code !== exercise.code && (item.code === exercise.substitute_code || (item.is_active && groups.some((group) => group.id === item.group_id && group.is_active)))).map((item) => <option key={item.code} value={item.code}>{item.name}{!item.is_active || !groups.some((group) => group.id === item.group_id && group.is_active) ? ' (inactivo)' : ''}</option>)}
+                              {filterGymSubstitutesByGroup(exercises, exerciseEditGroupId, exercise.code).filter((item) => item.code === exercise.substitute_code || (item.is_active && groups.some((group) => group.id === item.group_id && group.is_active))).map((item) => <option key={item.code} value={item.code}>{item.name}{!item.is_active || !groups.some((group) => group.id === item.group_id && group.is_active) ? ' (inactivo)' : ''}</option>)}
                             </select>
                           </label>
                           <div className="grid grid-cols-2 gap-2">
