@@ -201,6 +201,8 @@ export default function Home() {
   const stepMutationGuardRef = useRef(createLatestRequestGuard());
   const stepMutationLockRef = useRef(createMutationLock());
   const offlineFlushQueueRef = useRef(createSerialTaskQueue());
+  const waterMutationLockRef = useRef(createMutationLock());
+  const [savingWater, setSavingWater] = useState(false);
   const planMutationRevisionRef = useRef(0);
 
   function acquirePlanMutationLock() {
@@ -238,6 +240,8 @@ export default function Home() {
       resetPlanMutationLock();
       stepMutationGuard.invalidate();
       stepMutationLockRef.current = createMutationLock();
+      waterMutationLockRef.current = createMutationLock();
+      setSavingWater(false);
       setMutatingPlan(false);
       setApplyingDayChange(false);
       setSavingNewMeal(false);
@@ -471,8 +475,12 @@ export default function Home() {
     }
 
     if (nextCapabilities.canTrackWater) {
+      const waterLock = waterMutationLockRef.current;
+      const waterRevision = waterLock.currentRevision();
       const waterResult = await supabase.rpc('get_daily_water', { p_date: targetDate });
-      if (requestGuard.isCurrent(request)) commit(() => setWaterMl(typeof waterResult.data === 'number' ? waterResult.data : 0));
+      if (!waterResult.error && waterLock === waterMutationLockRef.current && !waterLock.isBusy() && waterRevision === waterLock.currentRevision()) {
+        commit(() => setWaterMl(typeof waterResult.data === 'number' ? waterResult.data : 0));
+      }
       const waterPreferences = await supabase.rpc('get_my_water_preferences');
       if (requestGuard.isCurrent(request) && Array.isArray(waterPreferences.data) && waterPreferences.data[0]) { commit(() => { setWaterGoalMl(waterPreferences.data[0].goal_ml); setWaterGlassMl(waterPreferences.data[0].glass_ml); }); }
     } else {
@@ -550,10 +558,13 @@ export default function Home() {
       }
 
       let blockedByStepMutation = false;
+      let synced = false;
+      let syncError = false;
+      const rejectedIds = new Set<number>();
       while (navigator.onLine && contextGuard.isGenerationCurrent(contextGeneration)) {
         const operations = await store.list(userId);
         if (!contextGuard.isGenerationCurrent(contextGeneration)) break;
-        const operation = operations[0];
+        const operation = operations.find((item: { id: number }) => !rejectedIds.has(item.id));
         if (!operation) break;
 
         let stepLock: ReturnType<typeof createMutationLock> | null = null;
@@ -568,12 +579,19 @@ export default function Home() {
         try {
           const { error } = await supabase.rpc(operation.rpc, operation.params);
           if (error) {
-            if (contextGuard.isGenerationCurrent(contextGeneration)) {
-              setPlanError('Hay un registro pendiente que no se pudo sincronizar.');
+            syncError = true;
+            // Keep rejected data locally, but do not block unrelated valid records.
+            if (error.code === 'P0001' || error.code === '42501' || /^(22|23)/.test(error.code ?? '')) {
+              rejectedIds.add(operation.id);
+              continue;
             }
             break;
           }
           await store.remove(userId, operation.id);
+          synced = true;
+        } catch {
+          syncError = true;
+          break;
         } finally {
           stepLock?.release();
         }
@@ -582,7 +600,10 @@ export default function Home() {
       const remaining = await store.list(userId);
       if (contextGuard.isGenerationCurrent(contextGeneration)) {
         setPendingSyncCount(remaining.length);
-        if (!blockedByStepMutation && remaining.length === 0) void fetchData(dateToRefresh);
+        if (!blockedByStepMutation && (synced || remaining.length === 0)) await fetchData(dateToRefresh);
+        if (contextGuard.isGenerationCurrent(contextGeneration) && syncError) {
+          setPlanError('Hay registros pendientes que no se pudieron sincronizar. Se conservan en este dispositivo; los registros válidos pueden seguir sincronizándose.');
+        }
       }
     };
     return offlineFlushQueueRef.current.run(run);
@@ -693,11 +714,26 @@ export default function Home() {
   }
 
   async function saveDailyWater(nextMl: number) {
-    if (isOutsidePersonalCorrectionWindow) return;
-    setWaterMl(nextMl);
-    if (!navigator.onLine) { await queueOfflineRpc('save_daily_water', { p_date: selectedDate, p_ml: nextMl }); return; }
-    const { error } = await supabase.rpc('save_daily_water', { p_date: selectedDate, p_ml: nextMl });
-    if (error) setPlanError('No se pudo guardar el agua.');
+    if (isOutsidePersonalCorrectionWindow || !canTrackWater || !session?.user.id) return;
+    const lock = waterMutationLockRef.current;
+    if (!lock.tryAcquire()) return;
+    const guard = stepMutationGuardRef.current;
+    const generation = guard.currentGeneration();
+    setSavingWater(true);
+    try {
+      if (!navigator.onLine) {
+        await queueOfflineRpc('save_daily_water', { p_date: selectedDate, p_ml: nextMl });
+      } else {
+        const { error } = await supabase.rpc('save_daily_water', { p_date: selectedDate, p_ml: nextMl });
+        if (error) throw error;
+      }
+      if (guard.isGenerationCurrent(generation)) setWaterMl(nextMl);
+    } catch {
+      if (guard.isGenerationCurrent(generation)) setPlanError('No se pudo guardar el agua. Se mantiene la cantidad anterior.');
+    } finally {
+      lock.release();
+      if (guard.isGenerationCurrent(generation)) setSavingWater(false);
+    }
   }
 
   async function queueOfflineRpc(rpc: string, params: Record<string, unknown>) {
@@ -1072,6 +1108,8 @@ export default function Home() {
     resetPlanMutationLock();
     stepMutationGuardRef.current.invalidate();
     stepMutationLockRef.current = createMutationLock();
+    waterMutationLockRef.current = createMutationLock();
+    setSavingWater(false);
     setMutatingPlan(false);
     setApplyingDayChange(false);
     setSavingNewMeal(false);
@@ -1588,12 +1626,12 @@ export default function Home() {
       {/* VISTA 1: PLAN DIARIO */}
       {currentTab === 'plan' && (
         <section className="px-5 mt-6">
-          {isOffline && <p className="mb-3 rounded-xl bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900" role="status">Sin conexión. Pendientes de sincronizar: {pendingSyncCount}</p>}
+          {(isOffline || pendingSyncCount > 0) && <p className="mb-3 rounded-xl bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900" role="status">{isOffline ? "Sin conexión. " : ""}Pendientes de sincronizar: {pendingSyncCount}</p>}
           {planError && <p className="mb-3 text-sm text-rose-700" role="alert">{planError}</p>}
           {canTrackWater && <section className="mb-4 rounded-3xl bg-cyan-50 p-4 shadow-sm">
             <div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Registro de agua</h2><p className="text-xs text-slate-500">{(waterMl / 1000).toFixed(2)} L de {(waterGoalMl / 1000).toFixed(2)} L</p></div><span className="text-2xl">💧</span></div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100"><div className="h-full bg-cyan-500" style={{ width: `${Math.min(100, waterMl / waterGoalMl * 100)}%` }} /></div>
-            <div className="mt-3 flex gap-2"><button type="button" disabled={isOutsidePersonalCorrectionWindow || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
+            <div className="mt-3 flex gap-2"><button type="button" disabled={loading || savingWater || isOutsidePersonalCorrectionWindow || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={loading || savingWater || isOutsidePersonalCorrectionWindow} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
           {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text} {canTrackCalories && log.kcal != null && <span>⚡ {log.kcal} kcal</span>}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" />{canTrackCalories && <label className="snack-dialog-field"><span>Kcal aproximadas</span><input aria-label="Kcal del control nocturno" type="number" min="0" max="10000" step="1" value={nightBingeKcal} onChange={(event) => setNightBingeKcal(event.target.value)} placeholder="0" /></label>}<div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
           {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => handleSnackCardClick(snack)} className="snack-card">
