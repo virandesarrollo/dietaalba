@@ -220,7 +220,7 @@ export function GymProgressDialog({
                     </div>
                     <svg viewBox="0 0 320 210" role="img" aria-label={title}>
                       <defs>
-                        <linearGradient id={`gym-progress-line-${metric}`} x1="0" y1="0" x2="1" y2="0">
+                        <linearGradient id={`gym-progress-line-${metric}`} gradientUnits="userSpaceOnUse" x1="38" y1="0" x2="283" y2="0">
                           <stop offset="0" stopColor="#8b5cf6" />
                           <stop offset="1" stopColor="#ec4899" />
                         </linearGradient>
