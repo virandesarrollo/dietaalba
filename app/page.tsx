@@ -13,6 +13,7 @@ import { isNightBingeTime } from '@/lib/night-binge-time.js';
 import { rankSourceDays } from '@/lib/source-day-options.js';
 import { AccountMenu } from '@/components/AccountMenu';
 import { TodaySummary } from '@/components/TodaySummary';
+import { remainingCalories } from '@/lib/calorie-goal.js';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
@@ -151,6 +152,7 @@ export default function Home() {
   const nightBingeCalories = useMemo(() => nightBingeLogs.reduce((total, log) => total + (log.kcal ?? 0), 0), [nightBingeLogs]);
   const totalDailyCalories = completedCalories + snackCalories + nightBingeCalories;
   const calorieGoalKcal = calorieGoalByDate?.date === selectedDate ? calorieGoalByDate.value : null;
+  const remainingDailyCalories = remainingCalories(calorieGoalKcal, totalDailyCalories);
   const dailyFoodShareText = useMemo(
     () => formatDailyFoodShare({ date: selectedDate, meals, snacks, nightBingeLogs, includeCalories: canTrackCalories }),
     [selectedDate, meals, snacks, nightBingeLogs, canTrackCalories],
@@ -1558,11 +1560,12 @@ export default function Home() {
               </button>
             </div>
             {canTrackCalories && (
-              <div className="kcal-summary" data-status={calorieGoalKcal === null ? 'pending' : totalDailyCalories <= calorieGoalKcal ? 'ok' : 'over'} role="status" aria-label={`${totalDailyCalories} de ${calorieGoalKcal ?? 'objetivo pendiente'} kilocalorías`}>
+              <div className="kcal-summary" data-status={calorieGoalKcal === null ? 'pending' : totalDailyCalories <= calorieGoalKcal ? 'ok' : 'over'} role="status" aria-label={`${totalDailyCalories} de ${calorieGoalKcal ?? 'objetivo pendiente'} kilocalorías; ${remainingDailyCalories ?? 'pendientes'} kilocalorías restantes`}>
                 <span className="kcal-summary-icon" aria-hidden="true">⚡</span>
                 <span className="kcal-summary-copy">
                   <span className="kcal-summary-label">Kcal consumidas</span>
                   <strong className="kcal-summary-value"><span className="kcal-summary-number">{totalDailyCalories}</span> <span className="kcal-summary-unit">de {calorieGoalKcal ?? '…'} kcal</span></strong>
+                  <span className="mt-1 text-lg font-bold tabular-nums">Restantes: {remainingDailyCalories ?? '…'} kcal</span>
                   <span className="kcal-summary-label">Comidas + picoteos + nocturnos</span>
                 </span>
               </div>
