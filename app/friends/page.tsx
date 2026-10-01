@@ -162,6 +162,10 @@ export default function FriendsPage() {
     if (challengeMadridToday !== madridToday || challengeCurrentWeekStart !== currentWeekStart) {
       setMadridToday(challengeMadridToday);
     }
+    if (challengedFriendIdsForWeekHelper(challengesRef.current, challengeCurrentWeekStart).has(userId)) {
+      setChallengeMessage('Ya tenéis un reto esta semana.');
+      return;
+    }
     await runAction(
       `challenge:${userId}`,
       () => supabase.rpc('create_my_friend_challenge', {
