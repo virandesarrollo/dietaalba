@@ -1521,7 +1521,7 @@ export default function Home() {
             <span className="pt-2 text-xs font-semibold uppercase tracking-widest text-pink-500">Reporte</span>
           )}
           <div className="flex shrink-0 items-center gap-2">
-            {currentTab === 'plan' && <TodaySummary date={madridDateString()} userId={session.user.id} canViewSchedule={canViewDaySchedule} canViewTraining={featureCapabilities.canTrackGymWorkouts} />}
+            {currentTab === 'plan' && <TodaySummary date={selectedDate} userId={session.user.id} canViewSchedule={canViewDaySchedule} canViewTraining={featureCapabilities.canTrackGymWorkouts} />}
             <button type="button" aria-label="Ver autocontrol semanal" onClick={() => router.push('/self-control')} className="flex min-h-10 min-w-10 items-center justify-center px-1 text-2xl">🔥</button>
             <AccountMenu
               email={session.user.email ?? ''}
