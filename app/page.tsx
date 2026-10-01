@@ -752,8 +752,8 @@ export default function Home() {
       <div className="snack-dialog-warning">
         <span className="snack-dialog-warning-icon" aria-hidden="true">!</span>
         <div>
-          <h2 className="snack-dialog-warning-title">{isEditing ? 'Editar picoteo' : 'Te estás cargando tu progreso.'}</h2>
-          <p className="snack-dialog-warning-copy">{isEditing ? 'Corrige el registro sin perder de vista tu objetivo.' : 'No es hambre: es una decisión que aleja tus objetivos. Si lo haces, regístralo.'}</p>
+          <h2 className="snack-dialog-warning-title">{isEditing ? 'Editar picoteo' : '¿SEGURO QUE TIENES HAMBRE?'}</h2>
+          {isEditing && <p className="snack-dialog-warning-copy">Corrige el registro sin perder de vista tu objetivo.</p>}
         </div>
       </div>
       {renderPersonalCravings()}
@@ -1670,7 +1670,7 @@ export default function Home() {
                 const groupResolved = groupCompleted || groupSkipped;
 
                 return (<React.Fragment key={mealType}>
-                {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">⚠ Voy a picar</button></section>}
+                {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 w-full rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">+PICOTEO</button></section>}
                 {showSnackDialog && snackDialogMealType === mealType && renderSnackDialog('create')}
                 <section key={mealType} aria-label={mealType} className="space-y-2">
                   <div className="flex items-center gap-2">
