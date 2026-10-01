@@ -40,6 +40,10 @@ export default function FriendsPage() {
   const challengesRef = useRef<Challenge[]>([]);
   const mountedRef = useRef(false);
   const currentWeekStart = weekStartFromDateString(madridToday);
+  const challengeGroups = [
+    { id: 'current', title: null, challenges: challenges.filter((challenge) => challenge.week_start >= currentWeekStart) },
+    { id: 'past', title: 'Retos pasados', challenges: challenges.filter((challenge) => challenge.week_start < currentWeekStart) },
+  ];
   const challengedFriendIdsForWeek = useMemo(
     () => challengedFriendIdsForWeekHelper(challenges, currentWeekStart),
     [challenges, currentWeekStart],
@@ -268,29 +272,34 @@ export default function FriendsPage() {
         <h2 className="font-bold">⚔️ Retos semanales</h2>
         <p className="theme-muted text-xs">Terminan el domingo a las 23:59 (hora de Madrid). El lunes podéis iniciar un nuevo reto.</p>
         {challengeMessage && <p role="status" className="rounded-2xl bg-violet-50 px-4 py-3 text-sm font-medium text-violet-800">{challengeMessage}</p>}
-        {challenges.map((challenge) => (
-          <div key={challenge.id} className={`rounded-3xl bg-gradient-to-r p-4 ${challenge.week_start < currentWeekStart ? 'from-slate-100 to-slate-200 text-slate-700' : 'from-violet-600 to-rose-500 text-white'}`}>
-            <p className="text-xs font-bold uppercase">Duelo semanal</p>
-            <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-end gap-3 text-center">
-              <div><p className="inline-block rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white">Tú</p><p className="text-3xl font-bold">{challenge.my_score}</p></div>
-              <span className="pb-2 text-sm font-bold">VS</span>
-              <div><p className="inline-block rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white">Amigo</p><p className="text-3xl font-bold">{challenge.opponent_score}</p></div>
-            </div>
-            <div role="progressbar" aria-label="Progreso de tu puntuación en el reto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(challengeProgress(challenge.my_score, challenge.opponent_score))} className="mt-3 h-3 overflow-hidden rounded-full bg-white/30"><div className={`h-full rounded-full ${challenge.week_start < currentWeekStart ? 'bg-slate-400' : 'bg-yellow-300'}`} style={{ width: `${challengeProgress(challenge.my_score, challenge.opponent_score)}%` }} /></div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <p className="text-xs">{challenge.challenge_type === 'good_days' ? 'Más días buenos' : 'Mayor puntuación'} · {challenge.week_start < currentWeekStart ? 'Finalizado' : challenge.status === 'pending' ? 'Pendiente' : 'En curso'}</p>
-              {challenge.week_start === currentWeekStart && (
-                <button
-                  type="button"
-                  disabled={busyAction !== null}
-                  aria-label={`Eliminar reto semanal del ${challenge.week_start}`}
-                  onClick={() => void deleteChallenge(challenge.id)}
-                  className="min-h-11 min-w-11 rounded-xl text-white/90 hover:bg-white/15 disabled:opacity-50"
-                >
-                  <Trash2 aria-hidden="true" className="mx-auto" size={18} />
-                </button>
-              )}
-            </div>
+        {challengeGroups.filter((group) => group.challenges.length > 0).map((group) => (
+          <div key={group.id} className="space-y-3">
+            {group.title && <h2 className="pt-3 font-bold">{group.title}</h2>}
+            {group.challenges.map((challenge) => (
+              <div key={challenge.id} className={`rounded-3xl bg-gradient-to-r p-4 ${challenge.week_start < currentWeekStart ? 'from-slate-100 to-slate-200 text-slate-700' : 'from-violet-600 to-rose-500 text-white'}`}>
+                <p className="text-xs font-bold uppercase">Duelo semanal</p>
+                <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-end gap-3 text-center">
+                  <div><p className="inline-block rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white">Tú</p><p className="text-3xl font-bold">{challenge.my_score}</p></div>
+                  <span className="pb-2 text-sm font-bold">VS</span>
+                  <div><p className="inline-block rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white">Amigo</p><p className="text-3xl font-bold">{challenge.opponent_score}</p></div>
+                </div>
+                <div role="progressbar" aria-label="Progreso de tu puntuación en el reto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(challengeProgress(challenge.my_score, challenge.opponent_score))} className="mt-3 h-3 overflow-hidden rounded-full bg-white/30"><div className={`h-full rounded-full ${challenge.week_start < currentWeekStart ? 'bg-slate-400' : 'bg-yellow-300'}`} style={{ width: `${challengeProgress(challenge.my_score, challenge.opponent_score)}%` }} /></div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="text-xs">{challenge.challenge_type === 'good_days' ? 'Más días buenos' : 'Mayor puntuación'} · {challenge.week_start < currentWeekStart ? 'Finalizado' : challenge.status === 'pending' ? 'Pendiente' : 'En curso'}</p>
+                  {challenge.week_start === currentWeekStart && (
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      aria-label={`Eliminar reto semanal del ${challenge.week_start}`}
+                      onClick={() => void deleteChallenge(challenge.id)}
+                      className="min-h-11 min-w-11 rounded-xl text-white/90 hover:bg-white/15 disabled:opacity-50"
+                    >
+                      <Trash2 aria-hidden="true" className="mx-auto" size={18} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
         {friends.map((friend) => (
