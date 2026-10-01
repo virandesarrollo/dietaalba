@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
+import { ChevronDown, ShieldCheck, UserMinus, UserPlus, Users } from 'lucide-react';
 import { deriveAdminViews, deriveAvailableViews, deriveCapabilities, type AdminView, type RoleCode } from '@/lib/authz.js';
 import { createMutationLock, deriveFeatureCapabilities, normalizeFeatureRows, type FeatureCode } from '@/lib/feature-permissions.js';
 import { assignableRoles, deriveMemberActions, destructiveActionConfirmation, groupManageableMembers, mutationSucceededAfterReload, normalizeFeatureCodes, toggleFeature } from '@/lib/users-authz.js';
@@ -381,21 +381,51 @@ export default function UsersPage() {
             <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4 font-bold text-slate-800 sm:px-6">
               <span>{group.name}</span><span className="rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-500">{group.members.length} usuarios</span>
             </summary>
-            <div className="grid gap-4 border-t border-rose-50 p-4 lg:grid-cols-2">{group.members.map((member) => {
+            <div className="space-y-3 border-t border-rose-50 p-3 sm:p-4">{group.members.map((member) => {
             const actions = deriveMemberActions(isSudo, currentProfile?.id ?? '', member.user_id, member.status, member.roles, member.is_active);
             const isSelf = member.user_id === currentProfile?.id;
             const busy = savingKey !== null;
             const roles = draftRoles[member.membership_id] ?? [];
             const features = draftFeatures[member.membership_id] ?? [];
-            return <article key={member.membership_id} className="rounded-3xl border border-rose-50 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate font-bold text-slate-800">{member.full_name || 'Invitación pendiente'}</h3><p className="truncate text-xs text-slate-500">{member.email}</p><p className="mt-1 text-xs text-rose-400">{member.group_name} · {member.status}{isSudo && member.is_active !== null ? ` · cuenta ${member.is_active ? 'activa' : 'inactiva'}` : ''}{isSudo && member.is_sudo ? ' · sudo' : ''}</p></div><div className="flex items-center gap-2"><ShieldCheck className="shrink-0 text-rose-300" size={20} />{isSudo && member.user_id && member.is_active && member.roles.includes('patient') && <button type="button" onClick={() => void previewPatient(member)} disabled={busy} className="rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">Acceder como paciente</button>}</div></div>
-              <div className="mt-4"><p className="mb-2 text-xs font-semibold">Roles</p><div className="flex flex-wrap gap-2">{allowedRoles.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={roles.includes(code)} onChange={() => setDraftRoles((all) => ({ ...all, [member.membership_id]: toggleRole(roles, code) }))} disabled={!actions.canEditRoles || busy} />{label}</label>)}</div><button type="button" onClick={() => void saveRoles(member)} disabled={!actions.canEditRoles || busy || roles.length === 0} className="mt-3 rounded-xl bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar roles'}</button></div>
-              <div className="mt-4"><p className="mb-2 text-xs font-semibold">Funcionalidades</p><div className="flex flex-wrap gap-2">{ALL_FEATURES.map(({ code, label }) => <label key={code} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs"><input type="checkbox" checked={features.includes(code)} onChange={() => setDraftFeatures((all) => ({ ...all, [member.membership_id]: toggleFeature(features, code) }))} disabled={!actions.canSetFeatures || busy} />{label}</label>)}</div></div>
-              <button type="button" onClick={() => void saveFeatures(member)} disabled={!actions.canSetFeatures || busy} className="mt-3 rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar funcionalidades'}</button>
-              {member.user_id && member.status === 'active' && member.roles.includes('patient') && actions.canSetFeatures && <DayScheduleEditor membershipId={member.membership_id} />}
-              <div className="mt-4"><p className="mb-2 text-xs font-semibold">Acciones de cuenta</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex items-center gap-1 rounded-xl bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="rounded-xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="rounded-xl bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div></div>
-              {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
-            </article>;
+            return <details key={member.membership_id} className="group/member overflow-hidden rounded-2xl border border-slate-100 bg-white">
+              <summary className="flex min-h-20 cursor-pointer list-none items-center gap-3 p-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 sm:gap-4 sm:px-5 [&::-webkit-details-marker]:hidden">
+                <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-sm font-bold text-indigo-700">{(member.full_name || member.email).trim().charAt(0).toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words font-bold text-slate-800">{member.full_name || 'Invitación pendiente'}</span>
+                  <span className="block break-all text-xs text-slate-500">{member.email}</span>
+                  <span className="mt-2 flex flex-wrap gap-2 text-xs">
+                    <span className={`rounded-md px-2 py-1 font-semibold ${member.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>{member.status === 'active' ? 'Miembro activo' : member.status === 'pending' ? 'Invitación pendiente' : 'Membresía desactivada'}</span>
+                    {isSudo && member.is_active !== null && <span className="rounded-md bg-slate-50 px-2 py-1 text-slate-500">Cuenta {member.is_active ? 'activa' : 'inactiva'}</span>}
+                    {isSudo && member.is_sudo && <span className="flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-indigo-700"><ShieldCheck size={12} aria-hidden="true" /> Sudo</span>}
+                  </span>
+                </span>
+                <ChevronDown aria-hidden="true" size={20} className="shrink-0 text-slate-400 transition-transform group-open/member:rotate-180" />
+              </summary>
+              <div className="space-y-5 border-t border-slate-100 p-4 sm:p-5">
+                {isSudo && member.user_id && member.is_active && member.roles.includes('patient') && <div className="flex justify-end"><button type="button" onClick={() => void previewPatient(member)} disabled={busy} className="min-h-11 rounded-xl bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">Acceder como paciente</button></div>}
+                <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                  <fieldset className="min-w-0 rounded-2xl border border-slate-100 p-4">
+                    <legend className="px-2 text-sm font-bold text-slate-800">Roles</legend>
+                    <p className="mb-3 text-xs text-slate-500">Define qué puede gestionar este usuario.</p>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">{allowedRoles.map(({ code, label }) => <label key={code} className={`flex min-h-11 items-center gap-3 rounded-xl border px-3 py-2 text-xs font-medium ${roles.includes(code) ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600'} ${!actions.canEditRoles || busy ? 'opacity-60' : 'cursor-pointer'}`}><input type="checkbox" className="h-4 w-4 shrink-0 accent-indigo-600" checked={roles.includes(code)} onChange={() => setDraftRoles((all) => ({ ...all, [member.membership_id]: toggleRole(roles, code) }))} disabled={!actions.canEditRoles || busy} />{label}</label>)}</div>
+                    <button type="button" onClick={() => void saveRoles(member)} disabled={!actions.canEditRoles || busy || roles.length === 0} className="mt-4 min-h-11 w-full rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Guardando…' : 'Guardar roles'}</button>
+                  </fieldset>
+                  <fieldset className="min-w-0 rounded-2xl border border-slate-100 p-4">
+                    <legend className="px-2 text-sm font-bold text-slate-800">Funcionalidades</legend>
+                    <p className="mb-3 text-xs text-slate-500">Activa las herramientas disponibles para este usuario.</p>
+                    <div className="grid gap-2 sm:grid-cols-2">{ALL_FEATURES.map(({ code, label }) => <label key={code} className={`flex min-h-11 items-center gap-3 rounded-xl border px-3 py-2 text-xs font-medium ${features.includes(code) ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600'} ${!actions.canSetFeatures || busy ? 'opacity-60' : 'cursor-pointer'}`}><input type="checkbox" className="h-4 w-4 shrink-0 accent-indigo-600" checked={features.includes(code)} onChange={() => setDraftFeatures((all) => ({ ...all, [member.membership_id]: toggleFeature(features, code) }))} disabled={!actions.canSetFeatures || busy} />{label}</label>)}</div>
+                    <div className="mt-4 flex justify-end"><button type="button" onClick={() => void saveFeatures(member)} disabled={!actions.canSetFeatures || busy} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-40 sm:w-auto">{busy ? 'Guardando…' : 'Guardar funcionalidades'}</button></div>
+                  </fieldset>
+                </div>
+                {member.user_id && member.status === 'active' && member.roles.includes('patient') && actions.canSetFeatures && <DayScheduleEditor membershipId={member.membership_id} />}
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <p className="text-sm font-bold text-slate-800">Acciones de cuenta</p>
+                  <p className="mt-1 text-xs text-slate-500">Gestiona el acceso y los privilegios del usuario.</p>
+                  <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void disableMembership(member)} disabled={!actions.canDisableMembership || busy} className="flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"><UserMinus size={14} /> Desactivar membresía</button>{actions.canSetAccountActive && (member.is_active === true ? <button type="button" onClick={() => void setAccountActive(member, false)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-amber-700 disabled:opacity-40">Desactivar cuenta</button> : <button type="button" onClick={() => void setAccountActive(member, true)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-emerald-700 disabled:opacity-40">Activar cuenta</button>)}{actions.canSetSudo && <button type="button" onClick={() => void setUserSudo(member, !member.is_sudo)} disabled={busy} className="min-h-11 rounded-xl bg-white px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-40">{member.is_sudo ? 'Retirar sudo' : 'Conceder sudo'}</button>}</div>
+                  {isSelf && <p className="mt-3 text-xs text-slate-400">Tu propia cuenta no se puede editar desde aquí.</p>}
+                </div>
+              </div>
+            </details>;
           })}</div>
           </details>)}</div>
           {groups.length === 0 && <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 shadow-sm">No hay grupos administrables.</p>}
