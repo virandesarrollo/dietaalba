@@ -13,7 +13,7 @@ import { buildMetricChart, type MetricValue } from '@/lib/metric-chart.js';
 type Profile = { id: string; email: string; full_name: string | null };
 type Membership = { id: string };
 type RoleRow = { role_code: RoleCode };
-type Workout = { date: string; exercise: string | null; weight_kg: number | null; reps: number | null };
+type Workout = { date: string; exercise: string | null; exercise_group?: string | null; weight_kg: number | null; reps: number | null };
 type HealthRecord = {
   recorded_at: string;
   weight_kg: number | null;

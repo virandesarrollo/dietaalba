@@ -17,6 +17,9 @@ function shortDate(date: string) {
 
 export function PatientTrainingEvolution({ workouts }: { workouts: PatientWorkout[] }) {
   const evolution = useMemo(() => buildPatientTrainingEvolution(workouts), [workouts]);
+  const exerciseGroups = useMemo(() => [...new Set(evolution.exercises.map(({ group }) => group))]
+    .sort((left, right) => left === right ? 0 : left === 'Sin grupo' ? 1 : right === 'Sin grupo' ? -1 : left.localeCompare(right, 'es')),
+  [evolution]);
   const [requestedExercise, setRequestedExercise] = useState('');
   const selected = evolution.exercises.find(({ name }) => name === requestedExercise) ?? evolution.exercises[0];
 
@@ -41,7 +44,9 @@ export function PatientTrainingEvolution({ workouts }: { workouts: PatientWorkou
     {!selected ? <p className="text-sm text-slate-500">Hay series registradas, pero faltan datos de carga o repeticiones para comparar la evolución.</p> : <>
       <label className="block text-sm font-semibold text-slate-700">Ver evolución de un ejercicio
         <select value={selected.name} onChange={(event) => setRequestedExercise(event.target.value)} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-400">
-          {evolution.exercises.map(({ name, sessions }) => <option key={name} value={name}>{name} · {sessions.length} {sessions.length === 1 ? 'sesión' : 'sesiones'}</option>)}
+          {exerciseGroups.map((group) => <optgroup key={group} label={group}>
+            {evolution.exercises.filter((exercise) => exercise.group === group).map(({ name, sessions }) => <option key={name} value={name}>{name} · {sessions.length} {sessions.length === 1 ? 'sesión' : 'sesiones'}</option>)}
+          </optgroup>)}
         </select>
       </label>
 
