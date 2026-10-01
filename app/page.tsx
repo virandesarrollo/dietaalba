@@ -1673,8 +1673,8 @@ export default function Home() {
                 {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 w-full rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">+PICOTEO</button></section>}
                 {showSnackDialog && snackDialogMealType === mealType && renderSnackDialog('create')}
                 <section key={mealType} aria-label={mealType} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-[10px] font-semibold uppercase tracking-wider text-purple-600">{mealType}</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-extrabold leading-snug text-purple-600 sm:text-2xl">{mealType}</h3>
                     {groupCompleted && (
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                         Comida realizada
