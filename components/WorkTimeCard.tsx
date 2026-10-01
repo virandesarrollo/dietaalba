@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { daySchedule, normalizeSchedule, scheduleHours } from '@/lib/day-schedule.js';
 import { isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date.js';
-import { formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest } from '@/lib/work-time.js';
+import { calculatedWorkExit, formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest } from '@/lib/work-time.js';
 import { supabase } from '@/lib/supabase';
 import { coffeeCreditSeconds } from '@/lib/work-break.js';
 
-type WorkTime = { worked_seconds: number; active: boolean; open?: boolean; day_off: boolean; coffee_seconds?: number; coffee_minutes?: number; coffee_counts_as_work?: boolean };
+type WorkTime = { worked_seconds: number; active: boolean; open?: boolean; day_off: boolean; coffee_seconds?: number; coffee_minutes?: number; coffee_counts_as_work?: boolean; sampled_at?: number };
 type WorkPunch = { id?: string; started_at: string; ended_at: string | null; break_kind_after?: 'normal' | 'coffee' };
 
 function formatPunchTime(value: string) {
@@ -39,14 +39,15 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   }, [punchKind]);
 
   const load = useCallback(async () => {
-    const [scheduleResult, timeResult] = await Promise.all([
-      supabase.rpc('get_my_day_schedule', { p_date: date }),
-      supabase.rpc('get_my_work_time', { p_date: date }),
-    ]);
-    if (scheduleResult.error || timeResult.error) throw new Error('No se pudo cargar el tiempo de trabajo.');
+    const scheduleResult = await supabase.rpc('get_my_day_schedule', { p_date: date });
+    if (scheduleResult.error) throw new Error('No se pudo cargar el horario de trabajo.');
+    const goal = scheduleHours(daySchedule(normalizeSchedule(scheduleResult.data), date)).work;
+    if (goal === 0) return { goal, time: { worked_seconds: 0, active: false, day_off: false } as WorkTime };
+    const timeResult = await supabase.rpc('get_my_work_time', { p_date: date });
+    if (timeResult.error) throw new Error('No se pudo cargar el tiempo de trabajo.');
     return {
-      goal: scheduleHours(daySchedule(normalizeSchedule(scheduleResult.data), date)).work,
-      time: timeResult.data as WorkTime,
+      goal,
+      time: { ...timeResult.data, sampled_at: Date.now() } as WorkTime,
     };
   }, [date]);
 
@@ -69,8 +70,9 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const canCorrect = date <= madridDateString() && !isOutsideCorrectionWindow(date);
   const coffeeCredit = coffeeCreditSeconds(time.coffee_seconds, time.coffee_minutes, time.coffee_counts_as_work);
   const remaining = time.day_off ? 0 : remainingWorkSeconds(goalMinutes, time.worked_seconds + coffeeCredit, false, 0);
+  const calculatedExit = today && time.active && !time.day_off ? calculatedWorkExit(remaining, time.sampled_at) : null;
 
-  if (!isWorkday(date) && !loading && !canCorrect && goalMinutes === 0 && time.worked_seconds === 0 && !time.day_off && !time.open) return null;
+  if (loading || (!loadFailed && goalMinutes === 0)) return null;
 
   async function retryLoad() {
     setBusy(true);
@@ -185,6 +187,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
         <button type="button" aria-label="Añadir fichaje manual" title="Añadir fichaje manual" aria-expanded={showManual && !editingPunch && !time.day_off} disabled={!canCorrect || time.day_off || busy} onClick={() => { setEditingPunch(null); setManualTime(''); setManualKind((time.open ?? time.active) ? 'exit' : 'entry'); setShowManual(editingPunch ? true : !showManual); }} className="min-h-11 rounded-xl border border-indigo-200 font-semibold text-indigo-700 disabled:opacity-40">+</button>
       </div>
       <button type="button" aria-expanded={showPunches} aria-controls="work-punch-list" onClick={() => void togglePunches()} className="mt-2 w-full text-center text-base font-extrabold tabular-nums text-indigo-700 underline decoration-indigo-200 underline-offset-4">{time.day_off ? (today ? 'Hoy no se trabaja' : 'No se trabajó este día') : `Falta: ${formatWorkSeconds(remaining)}`}</button>
+      {today && !time.day_off && <p className="mt-1 text-center text-base font-bold tabular-nums text-indigo-700">Salida calculada: {calculatedExit ?? '—'}</p>}
       {!time.day_off && coffeeCredit > 0 && <p className="mt-1 text-center text-xs text-slate-500">Café contabilizado: {formatWorkSeconds(coffeeCredit)}</p>}
       {showPunches && <div id="work-punch-list" className="mt-3 rounded-xl bg-indigo-50 p-3">
         {punchError ? <p role="alert" className="text-rose-700">No se pudieron cargar los fichajes.</p> : punches === null ? <p className="text-slate-500">Cargando fichajes…</p> : punches.length === 0 ? <p className="text-slate-600">No hay fichajes este día.</p> :
