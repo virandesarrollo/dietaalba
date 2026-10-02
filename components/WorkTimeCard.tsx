@@ -6,9 +6,9 @@ import { daySchedule, normalizeSchedule, scheduleHours } from '@/lib/day-schedul
 import { isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date.js';
 import { calculatedWorkExit, formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest, workPunchEditTime } from '@/lib/work-time.js';
 import { supabase } from '@/lib/supabase';
-import { coffeeCreditSeconds } from '@/lib/work-break.js';
+import { coffeeCountdownSeconds, coffeeCreditSeconds } from '@/lib/work-break.js';
 
-type WorkTime = { worked_seconds: number; active: boolean; open?: boolean; day_off: boolean; coffee_seconds?: number; coffee_minutes?: number; coffee_counts_as_work?: boolean; sampled_at?: number };
+type WorkTime = { worked_seconds: number; active: boolean; open?: boolean; day_off: boolean; coffee_seconds?: number; coffee_minutes?: number; coffee_counts_as_work?: boolean; coffee_started_at?: string | null; sampled_at?: number };
 type WorkPunch = { id?: string; started_at: string; ended_at: string | null; break_kind_after?: 'normal' | 'coffee' };
 
 function formatPunchTime(value: string) {
@@ -32,6 +32,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [punchKind, setPunchKind] = useState<'entry' | 'exit' | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const punchDialog = useRef<HTMLDialogElement>(null);
   const registering = useRef(false);
 
@@ -47,9 +48,16 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
     if (goal === 0) return { goal, time: { worked_seconds: 0, active: false, day_off: false } as WorkTime };
     const timeResult = await supabase.rpc('get_my_work_time', { p_date: date });
     if (timeResult.error) throw new Error('No se pudo cargar el tiempo de trabajo.');
+    let coffeeStartedAt: string | null = null;
+    if (date === madridDateString() && !timeResult.data.active && !timeResult.data.open && !timeResult.data.day_off) {
+      const result = await supabase.rpc('get_my_work_punches', { p_date: date });
+      if (result.error || !Array.isArray(result.data)) throw new Error('No se pudo cargar la pausa de café.');
+      const latest = result.data.at(-1) as WorkPunch | undefined;
+      if (latest?.break_kind_after === 'coffee' && latest.ended_at) coffeeStartedAt = latest.ended_at;
+    }
     return {
       goal,
-      time: { ...timeResult.data, sampled_at: Date.now() } as WorkTime,
+      time: { ...timeResult.data, coffee_started_at: coffeeStartedAt, sampled_at: Date.now() } as WorkTime,
     };
   }, [date]);
 
@@ -70,6 +78,13 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   const today = date === madridDateString();
   const historical = date < madridDateString();
   const canCorrect = date <= madridDateString() && !isOutsideCorrectionWindow(date);
+  const coffeeRemaining = today ? coffeeCountdownSeconds(time, Math.max(now, time.sampled_at ?? 0)) : null;
+  const coffeeRunning = coffeeRemaining !== null && !loadFailed;
+  useEffect(() => {
+    if (!coffeeRunning) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [coffeeRunning, date, userId]);
   const coffeeCredit = coffeeCreditSeconds(time.coffee_seconds, time.coffee_minutes, time.coffee_counts_as_work);
   const remaining = time.day_off ? 0 : remainingWorkSeconds(goalMinutes, time.worked_seconds + coffeeCredit, false, 0);
   const calculatedExit = today && time.active && !time.day_off ? calculatedWorkExit(remaining, time.sampled_at) : null;
@@ -203,6 +218,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       </div>
       <button type="button" aria-expanded={showPunches} aria-controls="work-punch-list" onClick={() => void togglePunches()} className="mt-2 min-h-14 w-full text-center text-base font-extrabold tabular-nums text-indigo-700 underline decoration-indigo-200 underline-offset-4">{time.day_off ? (today ? 'Hoy no se trabaja' : 'No se trabajó este día') : `Falta: ${formatWorkSeconds(remaining)}`}</button>
       {today && !time.day_off && <p className="mt-1 text-center text-base font-bold tabular-nums text-indigo-700">Salida calculada: {calculatedExit ?? '—'}</p>}
+      {coffeeRemaining !== null && <p role="timer" className="mt-1 text-center text-base font-bold tabular-nums text-indigo-700">Cuenta atrás café: {formatWorkSeconds(coffeeRemaining)}</p>}
       {!time.day_off && coffeeCredit > 0 && <p className="mt-1 text-center text-xs text-slate-500">Café contabilizado: {formatWorkSeconds(coffeeCredit)}</p>}
       {showPunches && <div id="work-punch-list" className="mt-3 rounded-xl bg-indigo-50 p-3">
         {punchError ? <p role="alert" className="text-rose-700">No se pudieron cargar los fichajes.</p> : punches === null ? <p className="text-slate-500">Cargando fichajes…</p> : punches.length === 0 ? <p className="text-slate-600">No hay fichajes este día.</p> :
