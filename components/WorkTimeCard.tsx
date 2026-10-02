@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Coffee } from 'lucide-react';
 import { daySchedule, normalizeSchedule, scheduleHours } from '@/lib/day-schedule.js';
 import { isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date.js';
 import { calculatedWorkExit, formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest } from '@/lib/work-time.js';
@@ -84,7 +85,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       onDayOffChange(date, refreshed.time.day_off);
       setLoadFailed(false);
       setError(null);
-    } catch { setError('No se pudo cargar el tiempo de trabajo.'); }
+    } catch { setLoadFailed(true); setError('No se pudo cargar el tiempo de trabajo.'); }
     finally { setBusy(false); }
   }
 
@@ -179,6 +180,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   async function togglePunches() {
     if (showPunches) { setShowPunches(false); return; }
     setShowPunches(true);
+    await retryLoad();
     await refreshPunches();
   }
 
@@ -195,11 +197,14 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
       {!time.day_off && coffeeCredit > 0 && <p className="mt-1 text-center text-xs text-slate-500">Café contabilizado: {formatWorkSeconds(coffeeCredit)}</p>}
       {showPunches && <div id="work-punch-list" className="mt-3 rounded-xl bg-indigo-50 p-3">
         {punchError ? <p role="alert" className="text-rose-700">No se pudieron cargar los fichajes.</p> : punches === null ? <p className="text-slate-500">Cargando fichajes…</p> : punches.length === 0 ? <p className="text-slate-600">No hay fichajes este día.</p> :
-          <ul className="space-y-3">{punches.map((punch, index) => <li key={`${punch.started_at}-${index}`} className="grid grid-cols-2 gap-2 rounded-xl bg-white p-3">
-            <button type="button" aria-label={`Editar entrada ${formatPunchTime(punch.started_at)}`} disabled={!today || time.day_off || busy || !punch.id} onClick={() => editPunch(punch, 'entry')} className="min-h-14 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 enabled:hover:bg-indigo-50"><span className="block text-sm text-slate-500">Entrada</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{formatPunchTime(punch.started_at)}</strong></button>
-            <button type="button" aria-label={punch.ended_at ? `Editar salida ${formatPunchTime(punch.ended_at)}` : 'Salida pendiente'} disabled={!today || time.day_off || busy || !punch.id || !punch.ended_at} onClick={() => editPunch(punch, 'exit')} className="min-h-14 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 enabled:hover:bg-indigo-50"><span className="block text-sm text-slate-500">Salida</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{punch.ended_at ? formatPunchTime(punch.ended_at) : 'En curso'}</strong></button>
+          <ul className="space-y-3">{punches.map((punch, index) => {
+            const coffeeEntry = !!punches[index - 1]?.ended_at && punches[index - 1].break_kind_after === 'coffee';
+            const coffeeExit = !!punch.ended_at && punch.break_kind_after === 'coffee';
+            return <li key={`${punch.started_at}-${index}`} className="grid grid-cols-2 gap-2 rounded-xl bg-white p-3">
+            <button type="button" aria-label={`Editar entrada ${formatPunchTime(punch.started_at)}${coffeeEntry ? ', vuelta del café' : ''}`} disabled={!today || time.day_off || busy || !punch.id} onClick={() => editPunch(punch, 'entry')} className="min-h-14 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 enabled:hover:bg-indigo-50"><span className="flex items-center gap-1.5 text-sm text-slate-500">Entrada {coffeeEntry && <span role="img" aria-label="Vuelta del café" title="Vuelta del café" className="text-indigo-700"><Coffee size={16} aria-hidden="true" /></span>}</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{formatPunchTime(punch.started_at)}</strong></button>
+            <button type="button" aria-label={punch.ended_at ? `Editar salida ${formatPunchTime(punch.ended_at)}${coffeeExit ? ', salida al café' : ''}` : 'Salida pendiente'} disabled={!today || time.day_off || busy || !punch.id || !punch.ended_at} onClick={() => editPunch(punch, 'exit')} className="min-h-14 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 enabled:hover:bg-indigo-50"><span className="flex items-center gap-1.5 text-sm text-slate-500">Salida {coffeeExit && <span role="img" aria-label="Salida al café" title="Salida al café" className="text-indigo-700"><Coffee size={16} aria-hidden="true" /></span>}</span><strong className="text-2xl font-bold tabular-nums text-indigo-800">{punch.ended_at ? formatPunchTime(punch.ended_at) : 'En curso'}</strong></button>
             {punch.ended_at && punch.break_kind_after === 'coffee' && <span className="col-span-2 text-xs font-semibold text-indigo-700">Pausa de café</span>}
-          </li>)}</ul>}
+          </li>; })}</ul>}
       </div>}
       {canCorrect && historical && <label className="mt-3 block text-slate-600">Motivo de la corrección (opcional) <input type="text" maxLength={200} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} className="mt-1 min-h-14 w-full text-base rounded-xl border border-slate-200 px-3" /></label>}
       {canCorrect && !time.day_off && showManual && (!editingPunch || today) && <div className="mt-4 space-y-4 rounded-2xl bg-indigo-50 p-4">
