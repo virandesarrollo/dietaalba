@@ -25,6 +25,7 @@ import { applySavedMealIds, buildMealPayload, type SavedMeal } from '@/lib/admin
 import { groupMealOptions, MAX_MEAL_OPTIONS } from '@/lib/meal-options.js';
 import { DietImportWizard } from '@/components/DietImportWizard';
 import { AccountMenu } from '@/components/AccountMenu';
+import { AdminPersonalCravings } from '@/components/AdminPersonalCravings';
 
 type Profile = {
   id: string;
@@ -596,6 +597,7 @@ export default function AdminPage() {
             </div>
           )}
 
+          {selectedPatientId && currentProfile && <AdminPersonalCravings key={`${currentProfile.id}:${selectedPatientId}`} patientId={selectedPatientId} />}
           {planLoadError && selectedPatientId && (
             <div className="mb-5 flex justify-end">
               <button
