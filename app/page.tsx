@@ -15,6 +15,7 @@ import { AccountMenu } from '@/components/AccountMenu';
 import { TodaySummary } from '@/components/TodaySummary';
 import { remainingCalories } from '@/lib/calorie-goal.js';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
+import { PersonalCravingPicker } from '@/components/PersonalCravingPicker';
 import { useConfirmDialog } from '@/components/ConfirmDialogProvider';
 import { canPublishDailyStepsLoad, createSerialTaskQueue, hasPendingDailyStepWrite, normalizeDailyStepRow, parseDailySteps } from '@/lib/daily-steps.js';
 import { isHistoricalDate, isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date';
@@ -782,19 +783,7 @@ export default function Home() {
 
   function renderPersonalCravings() {
     if (personalCravings.length === 0) return null;
-    const sortedCravings = [...personalCravings].sort((a, b) => a.text.localeCompare(b.text, 'es', { sensitivity: 'base' }));
-    const selectedCraving = personalCravings.find((craving) => craving.text.trim().toLocaleLowerCase('es-ES') === snackText.trim().toLocaleLowerCase('es-ES'));
-    return <label className="snack-dialog-cravings snack-dialog-field"><span>Antojos habituales</span><select
-      className="snack-dialog-select"
-      value={selectedCraving?.id ?? ''}
-      onChange={(event) => {
-        const craving = personalCravings.find((item) => item.id === event.target.value);
-        if (craving) selectPersonalCraving(craving);
-      }}
-    >
-      <option value="" disabled>Selecciona un antojo habitual</option>
-      {sortedCravings.map((craving) => <option key={craving.id} value={craving.id}>{craving.text}{canTrackCalories && craving.kcal != null ? ` · ${craving.kcal} kcal` : ''}</option>)}
-    </select></label>;
+    return <PersonalCravingPicker cravings={personalCravings} value={snackText} showCalories={canTrackCalories} onSelect={selectPersonalCraving} />;
   }
 
   function renderSnackDialog(mode: 'create' | 'edit') {
