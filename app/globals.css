@@ -648,6 +648,15 @@ main.theme-page > form.fixed {
   gap: 0.4rem;
 }
 
+.snack-card-comment {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--app-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
 .snack-card-time,
 .snack-card-kcal {
   border-radius: 999px;

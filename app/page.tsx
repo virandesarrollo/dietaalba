@@ -78,7 +78,7 @@ type Recipe = {
   ingredients?: string | null;
   recipe_url?: string | null;
 };
-type SnackLog = { id: string; recorded_at: string; text: string; kcal?: number | null };
+type SnackLog = { id: string; recorded_at: string; text: string; kcal?: number | null; comment?: string | null };
 type PersonalCraving = { id: string; text: string; kcal: number | null };
 type NightBingeLog = SnackLog;
 
@@ -137,6 +137,7 @@ export default function Home() {
   const [snackDialogMealType, setSnackDialogMealType] = useState<string | null>(null);
   const [snackText, setSnackText] = useState('');
   const [snackKcal, setSnackKcal] = useState('');
+  const [snackComment, setSnackComment] = useState('');
   const [snackTime, setSnackTime] = useState(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()));
   const [snacks, setSnacks] = useState<SnackLog[]>([]);
   const [personalCravings, setPersonalCravings] = useState<PersonalCraving[]>([]);
@@ -488,7 +489,7 @@ export default function Home() {
     }
     if (nextCapabilities.canTrackSnacks) {
       const [snacksResult, cravingsResult] = await Promise.all([
-        supabase.rpc('get_my_snack_logs', { p_date: targetDate }),
+        supabase.rpc('get_my_snack_logs_with_comments', { p_date: targetDate }),
         supabase.rpc('get_my_personal_cravings'),
       ]);
       if (requestGuard.isCurrent(request)) commit(() => {
@@ -800,13 +801,14 @@ export default function Home() {
         {canTrackCalories && <label className="snack-dialog-field"><span>Kcal aproximadas</span><input aria-label="Kcal del picoteo" type="number" min="0" max="10000" step="1" value={snackKcal} onChange={(event) => setSnackKcal(event.target.value)} placeholder="0" /></label>}
       </div>
       <label className="snack-dialog-field snack-dialog-description"><span>¿Qué vas a tomar?</span><textarea value={snackText} onChange={(event) => setSnackText(event.target.value)} maxLength={500} placeholder="Describe el picoteo" /></label>
+      <label className="snack-dialog-field snack-dialog-description"><span>Comentario (opcional)</span><textarea value={snackComment} onChange={(event) => setSnackComment(event.target.value)} maxLength={1000} disabled={isHistoricalDay} placeholder="Añade un comentario sobre este picoteo" /></label>
       <div className={`snack-dialog-actions ${isEditing ? 'is-editing' : ''}`}>
         {isEditing ? <>
-          <button type="button" onClick={() => { setEditingSnack(null); setSnackKcal(''); }} className="snack-dialog-secondary">Cancelar</button>
+          <button type="button" onClick={() => { setEditingSnack(null); setSnackKcal(''); setSnackComment(''); }} className="snack-dialog-secondary">Cancelar</button>
           <button type="button" onClick={() => void deleteSnack()} className="snack-dialog-delete">Borrar</button>
           <button type="button" onClick={() => void updateSnack()} disabled={!snackText.trim()} className="snack-dialog-primary">Guardar</button>
         </> : <>
-          <button type="button" onClick={() => { setShowSnackDialog(false); setSnackDialogMealType(null); setSnackKcal(''); }} className="snack-dialog-secondary">No picar</button>
+          <button type="button" onClick={() => { setShowSnackDialog(false); setSnackDialogMealType(null); setSnackKcal(''); setSnackComment(''); }} className="snack-dialog-secondary">No picar</button>
           <button type="button" onClick={() => void saveSnack()} disabled={!snackText.trim()} className="snack-dialog-primary">Registrar picoteo</button>
         </>}
       </div>
@@ -814,16 +816,20 @@ export default function Home() {
   }
 
   function handleSnackCardClick(snack: SnackLog) {
-    if (isOutsidePersonalCorrectionWindow) return;
+    if (isOutsidePersonalCorrectionWindow || (isHistoricalDay && !!snack.comment)) return;
     if (editingSnack?.id === snack.id) {
       setEditingSnack(null);
       setSnackText('');
       setSnackKcal('');
+      setSnackComment('');
       return;
     }
     setEditingSnack(snack);
+    setShowSnackDialog(false);
+    setSnackDialogMealType(null);
     setSnackText(snack.text);
     setSnackKcal(snack.kcal == null ? '' : String(snack.kcal));
+    setSnackComment(snack.comment ?? '');
     setSnackTime(new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Europe/Madrid',
       hour: '2-digit',
@@ -835,13 +841,23 @@ export default function Home() {
   async function saveSnack() {
     const kcal = snackKcalForSave();
     if (kcal === undefined) return;
-    if (!navigator.onLine) { await queueOfflineRpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setSnackText(''); setSnackKcal(''); setShowSnackDialog(false); setSnackDialogMealType(null); return; }
-    const { error } = await supabase.rpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate });
+    const commentParams = isHistoricalDay ? {} : { p_comment: snackComment };
+    if (!navigator.onLine) { await queueOfflineRpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate, ...commentParams }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setSnackText(''); setSnackKcal(''); setSnackComment(''); setShowSnackDialog(false); setSnackDialogMealType(null); return; }
+    const { error } = await supabase.rpc('save_my_snack_log', { p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, p_date: selectedDate, ...commentParams });
     if (error) setPlanError('No se pudo registrar el picoteo.');
-    else { await upsertPersonalCraving(snackText, kcal); setSnackText(''); setSnackKcal(''); setShowSnackDialog(false); setSnackDialogMealType(null); void fetchData(selectedDate); }
+    else { await upsertPersonalCraving(snackText, kcal); setSnackText(''); setSnackKcal(''); setSnackComment(''); setShowSnackDialog(false); setSnackDialogMealType(null); void fetchData(selectedDate); }
   }
-  async function updateSnack() { if (!editingSnack) return; const kcal = snackKcalForSave(); if (kcal === undefined) return; if (!navigator.onLine) { await queueOfflineRpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setEditingSnack(null); setSnackText(''); setSnackKcal(''); return; } const { error } = await supabase.rpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal }); if (error) setPlanError('No se pudo editar el picoteo.'); else { await upsertPersonalCraving(snackText, kcal); setEditingSnack(null); setSnackText(''); setSnackKcal(''); void fetchData(selectedDate); } }
-  async function deleteSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('delete_my_snack_log', { p_id: editingSnack.id }); if (error) setPlanError('No se pudo borrar el picoteo.'); else { setEditingSnack(null); void fetchData(selectedDate); } }
+  async function updateSnack() {
+    if (!editingSnack) return;
+    const kcal = snackKcalForSave();
+    if (kcal === undefined) return;
+    const commentParams = isHistoricalDay ? {} : { p_date: selectedDate, p_comment: snackComment };
+    if (!navigator.onLine) { await queueOfflineRpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, ...commentParams }); await queueOfflineRpc('upsert_my_personal_craving', { p_text: snackText, p_kcal: kcal }); setEditingSnack(null); setSnackText(''); setSnackKcal(''); setSnackComment(''); return; }
+    const { error } = await supabase.rpc('update_my_snack_log', { p_id: editingSnack.id, p_text: snackText, p_recorded_time: snackTime, p_kcal: kcal, ...commentParams });
+    if (error) setPlanError('No se pudo editar el picoteo.');
+    else { await upsertPersonalCraving(snackText, kcal); setEditingSnack(null); setSnackText(''); setSnackKcal(''); setSnackComment(''); void fetchData(selectedDate); }
+  }
+  async function deleteSnack() { if (!editingSnack) return; const { error } = await supabase.rpc('delete_my_snack_log', { p_id: editingSnack.id }); if (error) setPlanError('No se pudo borrar el picoteo.'); else { setEditingSnack(null); setSnackComment(''); void fetchData(selectedDate); } }
   async function saveNightBinge() {
     const kcal = nightBingeKcalForSave();
     if (kcal === undefined) return;
@@ -1634,10 +1650,11 @@ export default function Home() {
             <div className="mt-3 flex gap-2"><button type="button" disabled={loading || savingWater || isOutsidePersonalCorrectionWindow || waterMl === 0} onClick={() => void saveDailyWater(Math.max(0, waterMl - waterGlassMl))} className="min-h-12 flex-1 rounded-2xl bg-white font-bold disabled:opacity-40">− Vaso</button><button type="button" disabled={loading || savingWater || isOutsidePersonalCorrectionWindow} onClick={() => void saveDailyWater(waterMl + waterGlassMl)} className="min-h-12 flex-1 rounded-2xl bg-cyan-500 font-bold text-white disabled:opacity-40">+ Vaso</button></div>
           </section>}
           {canShowNightBingeAlarm && <section className="mb-4 rounded-3xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-slate-800">Control nocturno</h2><p className="text-xs text-slate-600">Alarma desde {nightBingeStartTime}</p></div><button type="button" onClick={() => setShowNightBingeDialog(true)} className="min-h-11 rounded-2xl bg-red-700 px-4 text-xs font-bold text-white">🚨 Alarma nocturna</button></div>{nightBingeLogs.map((log) => <p key={log.id} className="mt-2 rounded-lg bg-white p-2 text-xs text-indigo-900">🚨 {new Date(log.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}: {log.text} {canTrackCalories && log.kcal != null && <span>⚡ {log.kcal} kcal</span>}</p>)}{showNightBingeDialog && <div role="alertdialog" aria-label="Registrar control nocturno" className="mt-3 rounded-2xl border-2 border-red-700 bg-white p-4"><h2 className="font-bold text-red-800">Detente: estás poniendo en riesgo tu progreso.</h2><textarea value={nightBingeText} onChange={(event) => setNightBingeText(event.target.value)} maxLength={500} placeholder="Qué has comido" className="mt-3 min-h-20 w-full rounded border p-2" />{canTrackCalories && <label className="snack-dialog-field"><span>Kcal aproximadas</span><input aria-label="Kcal del control nocturno" type="number" min="0" max="10000" step="1" value={nightBingeKcal} onChange={(event) => setNightBingeKcal(event.target.value)} placeholder="0" /></label>}<div className="mt-2 flex gap-2"><button type="button" onClick={() => setShowNightBingeDialog(false)} className="rounded bg-slate-100 px-3 py-2">Cancelar</button><button type="button" disabled={!nightBingeText.trim()} onClick={() => void saveNightBinge()} className="rounded bg-red-800 px-3 py-2 font-semibold text-white disabled:opacity-40">Registrar</button></div></div>}</section>}
-          {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow} onClick={() => handleSnackCardClick(snack)} className="snack-card">
+          {canTrackSnacks && snacks.map((snack) => <button key={snack.id} type="button" disabled={isOutsidePersonalCorrectionWindow || (isHistoricalDay && !!snack.comment)} onClick={() => handleSnackCardClick(snack)} className="snack-card">
             <span className="snack-card-icon" aria-hidden="true">!</span>
             <span className="snack-card-content">
               <span className="snack-card-description">{snack.text}</span>
+              {snack.comment && <span className="snack-card-comment">{snack.comment}</span>}
               <span className="snack-card-meta">
                 <span className="snack-card-time">🕒 {new Date(snack.recorded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
                 {canTrackCalories && snack.kcal != null && <span className="snack-card-kcal">⚡ {snack.kcal} kcal</span>}
@@ -1711,7 +1728,7 @@ export default function Home() {
                 const groupResolved = groupCompleted || groupSkipped;
 
                 return (<React.Fragment key={mealType}>
-                {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setSnackKcal(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 w-full rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">+PICOTEO</button></section>}
+                {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setEditingSnack(null); setSnackText(''); setSnackKcal(''); setSnackComment(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 w-full rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">+PICOTEO</button></section>}
                 {showSnackDialog && snackDialogMealType === mealType && renderSnackDialog('create')}
                 <section key={mealType} aria-label={mealType} className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
