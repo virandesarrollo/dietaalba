@@ -414,7 +414,6 @@ main.theme-page > form.fixed {
   margin-top: 1rem;
 }
 
-.snack-dialog-section-title,
 .snack-dialog-field > span {
   color: var(--app-heading);
   font-size: 0.72rem;
@@ -423,35 +422,7 @@ main.theme-page > form.fixed {
   text-transform: uppercase;
 }
 
-.snack-dialog-chip-list {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding: 0.45rem 0.1rem 0.4rem;
-  scrollbar-width: thin;
-}
-
-.snack-dialog-chip {
-  flex: none;
-  min-height: 2.75rem;
-  border: 1px solid color-mix(in srgb, #f59e0b 42%, var(--app-border));
-  border-radius: 999px;
-  background: color-mix(in srgb, #f59e0b 10%, var(--app-surface-soft));
-  color: var(--app-text);
-  padding: 0.6rem 0.85rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
-}
-
-.snack-dialog-chip:hover,
-.snack-dialog-chip.is-selected {
-  border-color: #f59e0b;
-  background: color-mix(in srgb, #f59e0b 18%, var(--app-surface-soft));
-  transform: translateY(-1px);
-}
-
-.snack-dialog-chip:focus-visible,
+.snack-dialog-field select:focus,
 .snack-dialog-field input:focus,
 .snack-dialog-field textarea:focus,
 .snack-dialog-actions button:focus-visible {
@@ -472,6 +443,7 @@ main.theme-page > form.fixed {
 }
 
 .snack-dialog-field input,
+.snack-dialog-field select,
 .snack-dialog-field textarea {
   width: 100%;
   min-height: 3rem;
@@ -482,7 +454,14 @@ main.theme-page > form.fixed {
   padding: 0.8rem 0.9rem;
 }
 
+.snack-dialog-field .snack-dialog-select {
+  min-height: 3.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 .snack-dialog-field input:focus,
+.snack-dialog-field select:focus,
 .snack-dialog-field textarea:focus {
   border-color: #ef4444;
 }

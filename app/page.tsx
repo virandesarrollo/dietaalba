@@ -782,7 +782,19 @@ export default function Home() {
 
   function renderPersonalCravings() {
     if (personalCravings.length === 0) return null;
-    return <div className="snack-dialog-cravings"><p className="snack-dialog-section-title">Antojos habituales</p><div className="snack-dialog-chip-list">{personalCravings.map((craving) => <button key={craving.id} type="button" onClick={() => selectPersonalCraving(craving)} className={`snack-dialog-chip ${snackText.trim().toLocaleLowerCase('es-ES') === craving.text.trim().toLocaleLowerCase('es-ES') ? 'is-selected' : ''}`}><span>{craving.text}</span>{canTrackCalories && craving.kcal != null && <span> · {craving.kcal} kcal</span>}</button>)}</div></div>;
+    const sortedCravings = [...personalCravings].sort((a, b) => a.text.localeCompare(b.text, 'es', { sensitivity: 'base' }));
+    const selectedCraving = personalCravings.find((craving) => craving.text.trim().toLocaleLowerCase('es-ES') === snackText.trim().toLocaleLowerCase('es-ES'));
+    return <label className="snack-dialog-cravings snack-dialog-field"><span>Antojos habituales</span><select
+      className="snack-dialog-select"
+      value={selectedCraving?.id ?? ''}
+      onChange={(event) => {
+        const craving = personalCravings.find((item) => item.id === event.target.value);
+        if (craving) selectPersonalCraving(craving);
+      }}
+    >
+      <option value="" disabled>Selecciona un antojo habitual</option>
+      {sortedCravings.map((craving) => <option key={craving.id} value={craving.id}>{craving.text}{canTrackCalories && craving.kcal != null ? ` · ${craving.kcal} kcal` : ''}</option>)}
+    </select></label>;
   }
 
   function renderSnackDialog(mode: 'create' | 'edit') {
