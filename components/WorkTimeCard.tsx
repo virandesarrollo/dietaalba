@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Coffee } from 'lucide-react';
 import { daySchedule, normalizeSchedule, scheduleHours } from '@/lib/day-schedule.js';
 import { isOutsideCorrectionWindow, madridDateString } from '@/lib/historical-date.js';
-import { calculatedWorkExit, formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest } from '@/lib/work-time.js';
+import { calculatedWorkExit, formatWorkSeconds, isWorkday, remainingWorkSeconds, workCorrectionReason, workPunchEditRequest, workPunchEditTime } from '@/lib/work-time.js';
 import { supabase } from '@/lib/supabase';
 import { coffeeCreditSeconds } from '@/lib/work-break.js';
 
@@ -144,7 +144,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
     if (!today || time.day_off || busy || !punch.id || !value) return;
     setEditingPunch(punch);
     setManualKind(kind);
-    setManualTime(formatPunchTime(value));
+    setManualTime(workPunchEditTime(value));
     setShowManual(true);
     setError(null);
   }
@@ -152,6 +152,15 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
   async function savePunchEdit() {
     const request = workPunchEditRequest(date, editingPunch, manualKind, manualTime, madridDateString());
     if (!request || busy || time.day_off) return;
+    const editedTime = manualTime.length === 5 ? `${manualTime}:00` : manualTime;
+    if (editedTime === workPunchEditTime(request.p_expected_at)) {
+      // Avoid rewriting unchanged timestamps, including their fractional seconds.
+      setEditingPunch(null);
+      setShowManual(false);
+      setManualTime('');
+      setError(null);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -216,7 +225,7 @@ export function WorkTimeCard({ date, userId, onDayOffChange }: { date: string; u
           <label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-slate-200 bg-white px-3 text-base font-semibold has-checked:border-indigo-400 has-checked:bg-indigo-50 has-focus-visible:ring-2 has-focus-visible:ring-indigo-400"><input className="h-5 w-5 shrink-0 accent-indigo-600" type="radio" name="manual-work-break" checked={manualBreakKind === 'normal'} onChange={() => setManualBreakKind('normal')} /> Normal</label>
           <label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-slate-200 bg-white px-3 text-base font-semibold has-checked:border-indigo-400 has-checked:bg-indigo-50 has-focus-visible:ring-2 has-focus-visible:ring-indigo-400"><input className="h-5 w-5 shrink-0 accent-indigo-600" type="radio" name="manual-work-break" checked={manualBreakKind === 'coffee'} onChange={() => setManualBreakKind('coffee')} /> Café</label>
         </fieldset>}
-        <label className="block text-base font-semibold">Hora <input key={`${editingPunch?.id ?? 'new'}-${manualKind}`} autoFocus={!!editingPunch} disabled={busy} type="time" value={manualTime} onChange={(event) => setManualTime(event.target.value)} className="mt-2 min-h-16 w-full min-w-0 rounded-xl border-2 border-indigo-200 bg-white px-3 text-xl" /></label>
+        <label className="block text-base font-semibold">Hora <input key={`${editingPunch?.id ?? 'new'}-${manualKind}`} autoFocus={!!editingPunch} disabled={busy} type="time" step={editingPunch ? 1 : 60} value={manualTime} onChange={(event) => setManualTime(event.target.value)} className="mt-2 min-h-16 w-full min-w-0 rounded-xl border-2 border-indigo-200 bg-white px-3 text-xl" /></label>
         <button type="button" disabled={busy || !manualTime} onClick={() => void (editingPunch ? savePunchEdit() : addManual())} className="min-h-14 w-full text-base rounded-xl bg-indigo-600 px-4 font-semibold text-white disabled:opacity-40">{editingPunch ? 'Guardar cambios' : 'Guardar fichaje'}</button>
         <button type="button" disabled={busy} onClick={() => { setEditingPunch(null); setShowManual(false); setManualTime(''); }} className="min-h-14 w-full text-base rounded-xl border border-indigo-200 px-4 font-semibold text-indigo-700 disabled:opacity-40">Cancelar</button>
       </div>}
