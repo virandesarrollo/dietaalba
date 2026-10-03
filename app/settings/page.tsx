@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, LogOut, Moon, Palette, Sparkles, Sun } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
+import { useMealGroupPreference } from '@/components/useMealGroupPreference';
 import { normalizeDailyStepRow, parseStepGoal } from '@/lib/daily-steps.js';
 import { parseCalorieGoal } from '@/lib/calorie-goal.js';
 import { deriveFeatureCapabilities, normalizeFeatureRows } from '@/lib/feature-permissions.js';
@@ -26,6 +27,8 @@ const COLOR_OPTIONS: Array<{ key: ThemeColorKey; label: string }> = [
 export default function SettingsPage() {
   const router = useRouter();
   const { theme, colors, saving, error, setTheme, setColors, resetColors } = useTheme();
+  const [preferenceUserId, setPreferenceUserId] = useState<string | null>(null);
+  const { expanded: mealGroupsExpanded, loading: mealGroupsLoading, saving: savingMealGroups, error: mealGroupsError, setExpanded: setMealGroupsExpanded } = useMealGroupPreference(preferenceUserId);
   const [colorEdits, setColorEdits] = useState<Partial<typeof colors>>({});
   const [loading, setLoading] = useState(true);
   const [canAccessSettings, setCanAccessSettings] = useState(false);
@@ -61,7 +64,6 @@ export default function SettingsPage() {
   const draftColors = { ...colors, ...colorEdits };
   const colorValidation = validateColorPalette(draftColors);
   const colorsChanged = JSON.stringify(draftColors) !== JSON.stringify(colors);
-  const hasFunctionalSettings = canTrackGymWorkouts || canTrackSteps || canTrackCalories || canTrackWater || canTrackNightBinges;
 
   useEffect(() => {
     let active = true;
@@ -140,6 +142,7 @@ export default function SettingsPage() {
       const transition = advanceAuthIdentity({ initialized: authInitializedRef.current, generation: authGenerationRef.current, userId: currentUserIdRef.current }, userId);
       if (!transition.changed) return;
       authInitializedRef.current = transition.state.initialized; authGenerationRef.current = transition.state.generation; currentUserIdRef.current = transition.state.userId;
+      setPreferenceUserId(userId);
       const requestGeneration = ++requestGenerationRef.current; clearIdentityState(); setLoading(Boolean(userId));
       if (userId) void checkAccess(transition.state.generation, userId, requestGeneration); else router.replace('/');
     };
@@ -290,6 +293,15 @@ export default function SettingsPage() {
       <div className="px-5 pt-7">
 
         <button type="button" onClick={() => void logout()} className="mb-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 text-sm font-semibold text-rose-600"><LogOut size={17} />Salir</button>
+        <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
+          <h2 className="font-bold text-slate-800">Comidas del registro</h2>
+          <label className="mt-3 flex min-h-12 cursor-pointer items-center justify-between gap-4 text-sm">
+            <span>Mostrar comidas expandidas</span>
+            <input type="checkbox" checked={mealGroupsExpanded} disabled={mealGroupsLoading || savingMealGroups} onChange={(event) => void setMealGroupsExpanded(event.target.checked)} className="h-5 w-5 accent-purple-600" />
+          </label>
+          <p className="theme-muted mt-1 text-xs">Puedes expandir o contraer cada grupo pulsando su cabecera. El ajuste se guarda automáticamente.</p>
+          {mealGroupsError && <p role="status" className="mt-2 text-xs text-red-600">{mealGroupsError}</p>}
+        </section>
         {canTrackCalories && <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm"><h2 className="font-bold text-slate-800">Objetivo diario de kcal</h2><p className="theme-muted mt-1 text-xs">Se aplica desde hoy; los días anteriores conservan su objetivo.</p><div className="mt-4 flex items-center gap-3"><input type="number" min="500" max="10000" step="1" value={calorieGoal} onChange={(event) => setCalorieGoal(event.target.value)} className="min-h-12 w-full rounded-2xl border px-4" aria-label="Objetivo diario de kcal" disabled={savingCalorieGoal} /><button type="button" disabled={savingCalorieGoal} onClick={() => void saveCalorieGoal()} className="min-h-12 rounded-2xl bg-rose-500 px-5 font-semibold text-white disabled:opacity-50">Guardar objetivo</button></div>{calorieGoalMessage && <p className="theme-muted mt-3 text-xs" role="status">{calorieGoalMessage}</p>}</section>}
         {canTrackSteps && (
           <section className="theme-surface mb-5 rounded-3xl p-5 shadow-sm">
@@ -318,13 +330,7 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {!canChangeTheme ? (
-          !hasFunctionalSettings ? (
-            <section className="theme-surface rounded-3xl p-7 shadow-sm">
-              <p className="theme-muted text-sm">No tienes ajustes disponibles.</p>
-            </section>
-          ) : null
-        ) : (
+        {canChangeTheme && (
           <div className="space-y-5">
           <section className="theme-surface rounded-3xl p-5 shadow-sm">
             <div className="mb-6 flex items-center gap-3">

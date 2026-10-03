@@ -12,6 +12,7 @@ import { formatDailyFoodShare } from '@/lib/daily-food-share.js';
 import { isNightBingeTime } from '@/lib/night-binge-time.js';
 import { rankSourceDays } from '@/lib/source-day-options.js';
 import { AccountMenu } from '@/components/AccountMenu';
+import { useMealGroupPreference } from '@/components/useMealGroupPreference';
 import { TodaySummary } from '@/components/TodaySummary';
 import { remainingCalories } from '@/lib/calorie-goal.js';
 import { WorkTimeCard } from '@/components/WorkTimeCard';
@@ -104,6 +105,7 @@ export default function Home() {
   const router = useRouter();
   const confirmDialog = useConfirmDialog();
   const [session, setSession] = useState<Session | null>(null);
+  const { expanded: mealGroupsExpanded } = useMealGroupPreference(session?.user.id ?? null);
   const [authGeneration, setAuthGeneration] = useState<number>(0);
   const [loadingSession, setLoadingSession] = useState<boolean>(true);
   const [loadingFeatures, setLoadingFeatures] = useState<boolean>(true);
@@ -1732,8 +1734,8 @@ export default function Home() {
                 return (<React.Fragment key={mealType}>
                 {canTrackSnacks && <section className="py-1 text-center"><button type="button" onClick={() => { setEditingSnack(null); setSnackText(''); setSnackKcal(''); setSnackComment(''); setSnackDialogMealType(mealType); setShowSnackDialog(true); }} disabled={isOutsidePersonalCorrectionWindow} className="min-h-11 w-full rounded-2xl bg-red-600 px-4 text-xs font-bold text-white shadow-md disabled:opacity-40">+PICOTEO</button></section>}
                 {showSnackDialog && snackDialogMealType === mealType && renderSnackDialog('create')}
-                <section key={mealType} aria-label={mealType} className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                <details key={`${session.user.id}:${selectedDate}:${mealType}:${mealGroupsExpanded}`} open={mealGroupsExpanded} aria-label={mealType} className="group space-y-2">
+                  <summary className="flex min-h-12 cursor-pointer list-none flex-wrap items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-purple-600 [&::-webkit-details-marker]:hidden">
                     <h3 className="text-xl font-extrabold leading-snug text-purple-600 sm:text-2xl">{mealType}</h3>
                     {groupCompleted && (
                       <span className="inline-flex shrink-0 items-center self-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold leading-none text-emerald-700">
@@ -1745,7 +1747,8 @@ export default function Home() {
                         Comida saltada
                       </span>
                     )}
-                  </div>
+                    <ChevronDown size={20} aria-hidden="true" className="ml-auto shrink-0 text-purple-600 transition-transform group-open:rotate-180" />
+                  </summary>
                   <button
                     type="button"
                     onClick={() => void toggleMealSkipped(options[0].id)}
@@ -1913,7 +1916,7 @@ export default function Home() {
                 );
                   })}
                   </div>
-                </section>
+                </details>
                 </React.Fragment>);
               })}
             </div>
